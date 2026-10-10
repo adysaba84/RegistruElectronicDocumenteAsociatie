@@ -160,7 +160,9 @@ function afiseaza(activ, ...continut) {
 }
 
 function seIncarca(activ) {
+  const mesaj = stare.mesaj; // păstrat pentru pagina care urmează după încărcare
   afiseaza(activ, h('p', { class: 'incarcare' }, 'Se încarcă…'));
+  stare.mesaj = mesaj;
 }
 
 function eroarePagina(activ, e) {
