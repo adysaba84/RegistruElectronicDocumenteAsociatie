@@ -1,7 +1,7 @@
 // Criptare în browser (Web Crypto): cheia de acces la date e păstrată criptată
 // cu parola fiecărui utilizator (PBKDF2-SHA256 → AES-GCM).
 
-import { bytesToBase64 } from './github.js?v=13';
+import { bytesToBase64 } from './github.js?v=14';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

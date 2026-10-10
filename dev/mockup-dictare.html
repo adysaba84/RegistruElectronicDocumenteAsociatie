@@ -1,0 +1,408 @@
+<meta charset="utf-8">
+<title>Dictare proces-verbal</title>
+<style>
+/* Layout: design „Bloc” al aplicației — antet verde, carduri rotunjite pe fundal verde-gri,
+   bară de dictare lipită jos, ca pe telefon. Coloana de conținut max 720px. */
+:root {
+  --verde: #14532d; --verde-text: #eaf5ee;
+  --bg: #eef2ef; --card: #ffffff; --text: #14281f; --muted: #5b6b62; --border: #dbe3dd;
+  --accent: #15803d; --accent-text: #ffffff;
+  --rosu: #c0392b; --rosu-bg: #fdecea;
+  --amber-bg: #fde68a; --amber: #713f12;
+  --verde-bg: #bbf7d0; --verde-fg: #14532d;
+  --albastru-bg: #dbeafe; --albastru: #1e3a8a;
+  --gri-bg: #e7ece8; --gri: #3f4f46;
+  --flash: #fef9c3;
+  --radius: 14px; --radius-lg: 18px;
+  --umbra: 0 1px 2px rgba(20,40,31,.06), 0 4px 14px rgba(20,40,31,.06);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --verde: #0b3d22; --verde-text: #dff3e6;
+  --bg: #0e1712; --card: #17231c; --text: #e4efe8; --muted: #9db0a5; --border: #2a3a31;
+  --accent: #22a157; --accent-text: #06140b; --rosu: #f2837a; --rosu-bg: #3b1714;
+  --amber-bg: #4a3a0e; --amber: #fcd98a; --verde-bg: #164a2b; --verde-fg: #a7f0c2;
+  --albastru-bg: #1c2f55; --albastru: #bcd3ff; --gri-bg: #223029; --gri: #c3d2c9;
+  --flash: #3d3a12; --umbra: none; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --verde: #0b3d22; --verde-text: #dff3e6;
+  --bg: #0e1712; --card: #17231c; --text: #e4efe8; --muted: #9db0a5; --border: #2a3a31;
+  --accent: #22a157; --accent-text: #06140b; --rosu: #f2837a; --rosu-bg: #3b1714;
+  --amber-bg: #4a3a0e; --amber: #fcd98a; --verde-bg: #164a2b; --verde-fg: #a7f0c2;
+  --albastru-bg: #1c2f55; --albastru: #bcd3ff; --gri-bg: #223029; --gri: #c3d2c9;
+  --flash: #3d3a12; --umbra: none; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 var(--font); }
+button { font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ic { width: 1.2em; height: 1.2em; flex: none; vertical-align: -.22em; }
+
+header { background: var(--verde); color: var(--verde-text); padding: 14px 16px 18px; }
+.cap { max-width: 720px; margin: 0 auto; display: grid; gap: 4px; }
+.cap small { opacity: .8; font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; }
+.cap h1 { margin: 0; font-size: 1.3rem; font-weight: 650; text-wrap: balance; }
+.cap .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.pastila { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 10px; font-size: .8rem; font-weight: 600; }
+header .pastila { background: rgba(255,255,255,.14); color: var(--verde-text); }
+.p-verde { background: var(--verde-bg); color: var(--verde-fg); }
+.p-amber { background: var(--amber-bg); color: var(--amber); }
+.p-albastru { background: var(--albastru-bg); color: var(--albastru); }
+.p-gri { background: var(--gri-bg); color: var(--gri); }
+
+main { max-width: 720px; margin: 0 auto; padding: 16px 16px 230px; display: grid; gap: 14px; }
+.nota { background: var(--albastru-bg); color: var(--albastru); border-radius: var(--radius); padding: 10px 14px; font-size: .9rem; }
+.punct { background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--umbra); border: 2px solid transparent; padding: 14px 16px; display: grid; gap: 10px; transition: border-color .2s; }
+.punct.curent { border-color: var(--accent); }
+.punct h2 { margin: 0; font-size: 1.05rem; display: flex; gap: 8px; align-items: baseline; }
+.punct h2 .nr { color: var(--accent); font-variant-numeric: tabular-nums; }
+.punct .eticheta { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.discutie p { margin: 0 0 6px; }
+.gol { color: var(--muted); font-style: italic; font-size: .9rem; }
+.decizie { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 6px; }
+.decizie.curenta { border-color: var(--accent); background: color-mix(in srgb, var(--verde-bg) 30%, transparent); }
+.decizie .text { font-weight: 600; }
+.decizie .campuri { display: flex; flex-wrap: wrap; gap: 6px; }
+.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--flash); } to { background: transparent; } }
+
+.bara { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--border);
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -6px 20px rgba(0,0,0,.08); }
+.bara-in { max-width: 720px; margin: 0 auto; display: grid; gap: 8px; }
+.rand { display: flex; align-items: center; gap: 10px; }
+.tinta { flex: 1; min-width: 0; font-size: .85rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tinta b { color: var(--text); }
+.mic-btn { width: 64px; height: 64px; border-radius: 50%; border: 0; background: var(--accent); color: var(--accent-text);
+  display: grid; place-items: center; flex: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+.mic-btn .ic { width: 28px; height: 28px; }
+.mic-btn.asculta { background: var(--rosu); color: #fff; animation: puls 1.1s infinite; }
+@keyframes puls { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--rosu) 55%, transparent); } 100% { box-shadow: 0 0 0 16px transparent; } }
+.btn-mic { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 12px; padding: 8px 12px; display: inline-flex; align-items: center; gap: 6px; }
+.btn-mic:disabled { opacity: .45; cursor: default; }
+.scrie { display: flex; gap: 8px; }
+.scrie input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 12px; padding: 10px 12px; font: inherit; }
+.scrie button { border: 0; background: var(--verde); color: var(--verde-text); border-radius: 12px; padding: 0 14px; font-weight: 600; }
+.exemple { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.exemple button { flex: none; border: 1px dashed var(--border); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; font-size: .8rem; }
+.balon { background: var(--text); color: var(--bg); border-radius: 12px; padding: 8px 12px; font-size: .9rem; }
+.balon.interim { opacity: .75; font-style: italic; }
+.toast { display: flex; align-items: center; gap: 10px; border-radius: 12px; padding: 8px 12px; font-size: .9rem; }
+.toast.ok { background: var(--verde-bg); color: var(--verde-fg); }
+.toast.err { background: var(--rosu-bg); color: var(--rosu); }
+.toast span { flex: 1; min-width: 0; }
+.toast button { border: 0; background: transparent; color: inherit; font-weight: 700; text-decoration: underline; padding: 0; }
+
+.foaie { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; align-items: end; z-index: 5; }
+.foaie-in { background: var(--card); color: var(--text); border-radius: 18px 18px 0 0; max-height: 85%; overflow: auto;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); max-width: 720px; width: 100%; margin: 0 auto; }
+.foaie h2 { margin: 0 0 10px; font-size: 1.1rem; }
+.tabel { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+td { border-top: 1px solid var(--border); padding: 8px 6px; vertical-align: top; }
+td:first-child { font-family: var(--mono); font-size: .82rem; color: var(--accent); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .flash, .mic-btn.asculta { animation: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.5V14M12 17h.01"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18 17M20 4v7h-7"/></symbol>
+</svg>
+
+<header>
+  <div class="cap">
+    <small>Ședință comitet executiv · mockup</small>
+    <h1>Proces-verbal nr. 4/2026 · 15.10.2026</h1>
+    <div class="meta">
+      <span class="pastila">Ciornă</span>
+      <span class="pastila">Prezenți 5 din 7 · cvorum întrunit</span>
+      <span class="pastila">Zoom</span>
+    </div>
+  </div>
+</header>
+
+<main id="pv"></main>
+
+<div class="bara">
+  <div class="bara-in">
+    <div id="zona-mesaj"></div>
+    <div class="exemple" id="exemple" aria-label="Exemple de comenzi"></div>
+    <div class="scrie">
+      <input id="intrare" type="text" placeholder="Sau scrie ce ai spune: consemnează …" autocomplete="off">
+      <button id="trimite" type="button">Spune</button>
+    </div>
+    <div class="rand">
+      <button class="mic-btn" id="mic" type="button" aria-label="Ține apăsat și vorbește"><svg class="ic"><use href="#i-mic"/></svg></button>
+      <div class="tinta" id="tinta"></div>
+      <button class="btn-mic" id="undo" type="button" title="Anulează ultima"><svg class="ic"><use href="#i-undo"/></svg></button>
+      <button class="btn-mic" id="ajutor" type="button" title="Comenzi"><svg class="ic"><use href="#i-help"/></svg></button>
+      <button class="btn-mic" id="reset" type="button" title="Reia exemplul"><svg class="ic"><use href="#i-reset"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<div class="foaie" id="foaie" hidden>
+  <div class="foaie-in" role="dialog" aria-label="Comenzi vocale">
+    <h2>Comenzi vocale</h2>
+    <p class="gol" style="font-style:normal">Ține apăsat microfonul (sau atinge-l o dată ca să rămână pornit) și spune una dintre comenzi. Poți lega mai multe într-o frază: <i>„Decizie se aprobă oferta, vot unanim, responsabil lift, termen 30 octombrie”</i>.</p>
+    <div class="tabel"><table>
+      <tr><td>consemnează …</td><td>adaugă textul la discuția punctului curent (și „notează …”)</td></tr>
+      <tr><td>punct nou …</td><td>adaugă un punct pe ordinea de zi și trece la el</td></tr>
+      <tr><td>punctul următor / punctul 2</td><td>schimbă punctul curent</td></tr>
+      <tr><td>decizie …</td><td>adaugă o decizie la punctul curent (și „hotărâre …”)</td></tr>
+      <tr><td>vot 4 pentru 1 împotrivă 0 abțineri</td><td>votul deciziei curente; „vot unanim” = toți prezenții pentru</td></tr>
+      <tr><td>responsabil …</td><td>de ex. „responsabil lift”, „responsabil administrator”</td></tr>
+      <tr><td>termen …</td><td>„20 octombrie”, „20.10”, „peste 10 zile”, „sfârșitul lunii”</td></tr>
+      <tr><td>șterge ultima</td><td>anulează ultima modificare dictată (și „anulează”)</td></tr>
+    </table></div>
+    <p class="gol" style="font-style:normal;margin-top:12px">Orice altceva nu se scrie singur: apare ca „nerecunoscut”, cu un buton ca să-l consemnezi totuși.</p>
+    <button class="btn-mic" id="inchide" type="button">Închide</button>
+  </div>
+</div>
+
+<script>
+const PREZENTI = 5;
+const DATA_SEDINTA = new Date(2026, 9, 15);
+const ROLURI = ['Președinte', 'Resp. lift', 'Resp. apă-canal', 'Resp. curățenie', 'Resp. instalații electrice', 'Resp. cartea de imobil', 'Administrator', 'Cenzor'];
+const LUNI = ['ianuarie','februarie','martie','aprilie','mai','iunie','iulie','august','septembrie','octombrie','noiembrie','decembrie'];
+const NUMERE = { zero:0, niciuna:0, niciun:0, nimeni:0, unu:1, una:1, un:1, o:1, doi:2, doua:2, trei:3, patru:4, cinci:5, sase:6, sapte:7, opt:8, noua:9, zece:10, unsprezece:11, doisprezece:12 };
+
+const EXEMPLE = [
+  'consemnează administratorul a prezentat două oferte pentru revizia liftului',
+  'decizie se aprobă oferta firmei Ascensor Plus, vot 4 pentru 1 împotrivă 0 abțineri, responsabil lift, termen 30 octombrie',
+  'punct nou curățenia în subsol',
+  'consemnează s-a constatat că ușa de la subsol nu se închide',
+  'decizie se montează un amortizor la ușa subsolului, vot unanim, responsabil curățenie, termen peste 10 zile',
+  'punctul 1',
+  'șterge ultima',
+  'cred că trebuie să mai vorbim cu vecinii',
+];
+
+function exemplu() {
+  return { curent: 0, decizie: null, puncte: [
+    { titlu: 'Revizia anuală a liftului', discutie: [], decizii: [] },
+    { titlu: 'Situația restanțelor la întreținere', discutie: ['Administratorul a prezentat lista restanțelor peste 90 de zile: 3 apartamente.'],
+      decizii: [{ text: 'Se trimit somații scrise apartamentelor cu restanțe peste 90 de zile.', vot: [5,0,0], resp: 'Administrator', termen: '25.10.2026' }] },
+  ]};
+}
+
+let stare = exemplu();
+let istoric = [];
+let ultimaSchimbare = null;
+
+const norm = (s) => [...s].map((c) => c.normalize('NFD').replace(/[̀-ͯ]/g, '')).join('').toLowerCase();
+const curat = (s) => s.replace(/^[\s,:;.\-–]+|[\s,:;.\-–]+$/g, '');
+const fraza = (s) => { s = curat(s); if (!s) return s; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + '.'; };
+const fmt = (d) => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+const nrDin = (w) => /^\d+$/.test(w) ? +w : NUMERE[w];
+
+const RE_CMD = /\b(consemneaza|noteaza|punct nou|punctul urmator|punctul (?:\d+|unu|doi|trei|patru|cinci)|decizie|hotararea|hotarare|vot|responsabil|termen|sterge ultima|anuleaza)\b/g;
+
+function parseaza(text) {
+  const n = norm(text);
+  const gasite = [...n.matchAll(RE_CMD)];
+  const comenzi = [];
+  if (!gasite.length) return [{ tip: 'necunoscut', text }];
+  const inainte = curat(text.slice(0, gasite[0].index));
+  if (inainte) comenzi.push({ tip: 'necunoscut', text: inainte });
+  gasite.forEach((m, i) => {
+    const sf = i + 1 < gasite.length ? gasite[i+1].index : text.length;
+    comenzi.push({ tip: m[1], rest: curat(text.slice(m.index + m[0].length, sf)), restN: curat(n.slice(m.index + m[0].length, sf)) });
+  });
+  return comenzi;
+}
+
+function termen(restN) {
+  let m;
+  if ((m = restN.match(/peste (\w+) zile/))) { const k = nrDin(m[1]); if (k != null) { const d = new Date(DATA_SEDINTA); d.setDate(d.getDate()+k); return fmt(d); } }
+  if (/sfarsitul lunii/.test(restN)) return fmt(new Date(DATA_SEDINTA.getFullYear(), DATA_SEDINTA.getMonth()+1, 0));
+  if ((m = restN.match(/(\d{1,2})\s*[./]\s*(\d{1,2})(?:\s*[./]\s*(\d{4}))?/))) return fmt(new Date(+(m[3]||2026), +m[2]-1, +m[1]));
+  if ((m = restN.match(/(\w+)\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)/))) {
+    const z = nrDin(m[1]); if (z != null) return fmt(new Date(2026, LUNI.indexOf(m[2]), z)); }
+  return null;
+}
+
+function rol(restN, rest) {
+  const cuv = restN.split(/\s+/).filter((w) => w.length > 2);
+  const r = ROLURI.find((x) => cuv.some((w) => norm(x).includes(w)));
+  return r || fraza(rest).replace(/\.$/, '');
+}
+
+function aplica(text) {
+  const vechi = JSON.stringify(stare);
+  const s = JSON.parse(vechi);
+  const descrieri = []; const erori = []; const necunoscute = [];
+  let atins = null;
+  const punct = () => s.puncte[s.curent];
+  const dec = () => s.decizie != null ? punct().decizii[s.decizie] : null;
+
+  for (const c of parseaza(text)) {
+    switch (c.tip) {
+      case 'necunoscut': necunoscute.push(c.text); break;
+      case 'consemneaza': case 'noteaza':
+        if (!c.rest) { erori.push('Spune ce să consemnez după „consemnează”.'); break; }
+        punct().discutie.push(fraza(c.rest)); atins = `p${s.curent}`; descrieri.push(`Consemnat la punctul ${s.curent+1}`); break;
+      case 'punct nou':
+        s.puncte.push({ titlu: fraza(c.rest || 'Punct nou').replace(/\.$/, ''), discutie: [], decizii: [] });
+        s.curent = s.puncte.length - 1; s.decizie = null; atins = `p${s.curent}`; descrieri.push(`Punct nou: ${s.curent+1}`); break;
+      case 'punctul urmator':
+        if (s.curent + 1 >= s.puncte.length) { erori.push('Nu mai există un punct următor. Spune „punct nou …”.'); break; }
+        s.curent++; s.decizie = null; atins = `p${s.curent}`; descrieri.push(`Acum la punctul ${s.curent+1}`); break;
+      case 'decizie': case 'hotarare': case 'hotararea':
+        if (!c.rest) { erori.push('Spune textul deciziei după „decizie”.'); break; }
+        punct().decizii.push({ text: fraza(c.rest), vot: null, resp: null, termen: null });
+        s.decizie = punct().decizii.length - 1; atins = `d${s.curent}-${s.decizie}`; descrieri.push(`Decizie adăugată la punctul ${s.curent+1}`); break;
+      case 'vot': {
+        if (!dec()) { erori.push('Votul se dă pe o decizie. Spune întâi „decizie …”.'); break; }
+        let v = null;
+        if (/unanim/.test(c.restN)) v = [PREZENTI, 0, 0];
+        else {
+          const g = (re) => { const m = c.restN.match(re); return m ? nrDin(m[1]) : 0; };
+          const p = g(/(\w+)\s+pentru/), i = g(/(\w+)\s+impotriva/), a = g(/(\w+)\s+abtiner/);
+          if (p == null || i == null || a == null || (p + i + a === 0)) { erori.push('N-am înțeles votul. Ex.: „vot 4 pentru 1 împotrivă 0 abțineri”.'); break; }
+          v = [p, i, a];
+        }
+        dec().vot = v; atins = `d${s.curent}-${s.decizie}`;
+        descrieri.push(`Vot: ${v.join('–')}`);
+        if (v[0]+v[1]+v[2] > PREZENTI) erori.push(`Atenție: ${v[0]+v[1]+v[2]} voturi, dar sunt doar ${PREZENTI} prezenți.`);
+        break; }
+      case 'responsabil':
+        if (!dec()) { erori.push('Responsabilul se pune pe o decizie. Spune întâi „decizie …”.'); break; }
+        if (!c.rest) { erori.push('Spune cine e responsabil.'); break; }
+        dec().resp = rol(c.restN, c.rest); atins = `d${s.curent}-${s.decizie}`; descrieri.push(`Responsabil: ${dec().resp}`); break;
+      case 'termen': {
+        if (!dec()) { erori.push('Termenul se pune pe o decizie. Spune întâi „decizie …”.'); break; }
+        const t = termen(c.restN);
+        if (!t) { erori.push('N-am înțeles data. Ex.: „termen 30 octombrie” sau „peste 10 zile”.'); break; }
+        dec().termen = t; atins = `d${s.curent}-${s.decizie}`; descrieri.push(`Termen: ${t}`); break; }
+      case 'sterge ultima': case 'anuleaza':
+        anuleaza(); return;
+      default:
+        if (c.tip.startsWith('punctul ')) {
+          const k = nrDin(c.tip.slice(8));
+          if (k == null || k < 1 || k > s.puncte.length) { erori.push(`Nu există punctul ${c.tip.slice(8)}.`); break; }
+          s.curent = k - 1; s.decizie = null; atins = `p${s.curent}`; descrieri.push(`Acum la punctul ${k}`);
+        }
+    }
+  }
+  if (JSON.stringify(s) !== vechi) { istoric.push(vechi); stare = s; ultimaSchimbare = atins; }
+  deseneaza();
+  if (necunoscute.length) mesajNecunoscut(necunoscute.join(' '), descrieri, erori);
+  else if (erori.length) mesaj('err', [...descrieri, ...erori].join(' · '));
+  else if (descrieri.length) mesaj('ok', descrieri.join(' · '), true);
+}
+
+function anuleaza() {
+  if (!istoric.length) { mesaj('err', 'Nu e nimic de anulat.'); return; }
+  stare = JSON.parse(istoric.pop()); ultimaSchimbare = null; deseneaza(); mesaj('ok', 'Ultima modificare a fost anulată.');
+}
+
+const el = (tag, attrs = {}, ...copii) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v != null) e.setAttribute(k, v); }
+  for (const c of copii.flat()) if (c != null) e.append(c);
+  return e;
+};
+
+function deseneaza() {
+  const pv = document.getElementById('pv');
+  pv.replaceChildren(
+    el('div', { class: 'nota' }, 'Mockup: nimic nu se salvează. Apasă microfonul și vorbește, sau scrie ce ai spune și apasă „Spune”. Exemplele de deasupra se pot atinge.'),
+    ...stare.puncte.map((p, i) => {
+      const card = el('section', { class: 'punct' + (i === stare.curent ? ' curent' : ''), id: `p${i}` },
+        el('h2', {}, el('span', { class: 'nr' }, `${i+1}.`), p.titlu),
+        el('div', { class: 'eticheta' }, 'Discuții'),
+        el('div', { class: 'discutie' }, p.discutie.length ? p.discutie.map((t) => el('p', {}, t)) : el('p', { class: 'gol' }, 'Nimic consemnat încă.')),
+        p.decizii.length ? el('div', { class: 'eticheta' }, 'Decizii') : null,
+        p.decizii.map((d, j) => el('div', { class: 'decizie' + (i === stare.curent && j === stare.decizie ? ' curenta' : ''), id: `d${i}-${j}` },
+          el('div', { class: 'text' }, d.text),
+          el('div', { class: 'campuri' },
+            el('span', { class: 'pastila ' + (d.vot ? 'p-verde' : 'p-gri') }, d.vot ? `Vot ${d.vot[0]} pentru · ${d.vot[1]} împotrivă · ${d.vot[2]} abțineri` : 'Vot: —'),
+            el('span', { class: 'pastila ' + (d.resp ? 'p-albastru' : 'p-gri') }, d.resp ? `Responsabil: ${d.resp}` : 'Responsabil: —'),
+            el('span', { class: 'pastila ' + (d.termen ? 'p-amber' : 'p-gri') }, d.termen ? `Termen ${d.termen}` : 'Termen: —')))));
+      return card;
+    }));
+  const p = stare.puncte[stare.curent];
+  document.getElementById('tinta').innerHTML = '';
+  document.getElementById('tinta').append('Scrie la: ', el('b', {}, `Punctul ${stare.curent+1}`), stare.decizie != null ? el('span', {}, ` · Decizia ${stare.decizie+1}`) : '', ` · ${p.titlu}`);
+  document.getElementById('undo').disabled = !istoric.length;
+  if (ultimaSchimbare) {
+    const t = document.getElementById(ultimaSchimbare);
+    if (t) { t.classList.add('flash'); t.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+    ultimaSchimbare = null;
+  }
+}
+
+const zona = document.getElementById('zona-mesaj');
+let timerMesaj;
+function mesaj(tip, text, cuAnulare) {
+  clearTimeout(timerMesaj);
+  zona.replaceChildren(el('div', { class: `toast ${tip}`, role: 'status' }, el('span', {}, text), cuAnulare ? el('button', { type: 'button', onclick: anuleaza }, 'Anulează') : null));
+  timerMesaj = setTimeout(() => zona.replaceChildren(), 6000);
+}
+function mesajNecunoscut(text, descrieri, erori) {
+  clearTimeout(timerMesaj);
+  zona.replaceChildren(el('div', { class: 'toast err', role: 'status' },
+    el('span', {}, [...descrieri, ...erori, `Nerecunoscut: „${text}”`].join(' · ')),
+    el('button', { type: 'button', onclick: () => aplica('consemnează ' + text) }, 'Consemnează')));
+  timerMesaj = setTimeout(() => zona.replaceChildren(), 9000);
+}
+function interim(text) { clearTimeout(timerMesaj); zona.replaceChildren(el('div', { class: 'balon interim' }, text || 'Ascult…')); }
+
+// ---- intrare scrisă + exemple ----
+const intrare = document.getElementById('intrare');
+const trimite = () => { const t = intrare.value.trim(); if (!t) return; intrare.value = ''; aplica(t); };
+document.getElementById('trimite').onclick = trimite;
+intrare.addEventListener('keydown', (e) => { if (e.key === 'Enter') trimite(); });
+document.getElementById('exemple').append(...EXEMPLE.map((t) => el('button', { type: 'button', onclick: () => aplica(t) }, `„${t}”`)));
+document.getElementById('undo').onclick = anuleaza;
+document.getElementById('reset').onclick = () => { stare = exemplu(); istoric = []; deseneaza(); mesaj('ok', 'Exemplul a fost reluat de la început.'); };
+const foaie = document.getElementById('foaie');
+document.getElementById('ajutor').onclick = () => { foaie.hidden = false; };
+document.getElementById('inchide').onclick = () => { foaie.hidden = true; };
+foaie.addEventListener('click', (e) => { if (e.target === foaie) foaie.hidden = true; });
+
+// ---- microfon (Web Speech API) ----
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('mic');
+let rec = null, asculta = false, tinut = false, apasatLa = 0, bucati = '';
+function faraMicrofon(motiv) {
+  asculta = false; micBtn.classList.remove('asculta');
+  mesaj('err', motiv + ' Scrie mai jos ce ai spune.');
+  intrare.focus();
+}
+function porneste() {
+  if (!SR) { faraMicrofon('Browserul acesta nu are recunoaștere vocală (merge în Chrome, Edge, Safari).'); return; }
+  bucati = '';
+  rec = new SR(); rec.lang = 'ro-RO'; rec.interimResults = true; rec.continuous = true;
+  rec.onresult = (e) => {
+    let inter = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) { const t = e.results[i][0].transcript.trim(); if (t) aplica(t); }
+      else inter += e.results[i][0].transcript;
+    }
+    if (inter) interim(inter);
+  };
+  rec.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') faraMicrofon('Microfonul nu e permis aici (în pagina publicată e blocat; deschide fișierul local în Chrome).');
+    else if (e.error === 'no-speech') mesaj('err', 'N-am auzit nimic.');
+    else if (e.error !== 'aborted') faraMicrofon(`Recunoașterea vocală a dat eroare (${e.error}).`);
+  };
+  rec.onend = () => { if (asculta) { try { rec.start(); } catch {} } else micBtn.classList.remove('asculta'); };
+  try { rec.start(); asculta = true; micBtn.classList.add('asculta'); interim('Ascult…'); }
+  catch { faraMicrofon('Microfonul nu a putut porni.'); }
+}
+function opreste() { asculta = false; micBtn.classList.remove('asculta'); try { rec && rec.stop(); } catch {} }
+micBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); apasatLa = Date.now(); if (asculta) { tinut = false; return; } tinut = true; porneste(); });
+micBtn.addEventListener('pointerup', () => {
+  if (!tinut) { opreste(); return; }            // al doilea tap: oprește
+  if (Date.now() - apasatLa > 400) opreste();    // ținut apăsat: oprește la eliberare
+  tinut = false;                                  // tap scurt: rămâne pornit până la următorul tap
+});
+micBtn.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); asculta ? opreste() : porneste(); } });
+
+deseneaza();
+</script>

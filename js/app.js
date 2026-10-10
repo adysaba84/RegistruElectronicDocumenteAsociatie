@@ -1,16 +1,16 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=13';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=13';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=14';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=14';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
-} from './store.js?v=13';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=13';
+} from './store.js?v=14';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=14';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=13';
+} from './sedinte.js?v=14';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=13';
+} from './config.js?v=14';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -1098,7 +1098,7 @@ async function paginaProfil() {
       eroare.hidden = false;
     }
   } },
-  h('input', { name: 'dispozitiv', required: true, maxlength: 60, placeholder: 'ex. Telefon Samsung, Laptop birou', 'aria-label': 'Numele dispozitivului' }),
+  h('input', { name: 'dispozitiv', required: true, maxlength: 60, placeholder: 'ex. Cont Google, Laptop birou', 'aria-label': 'Numele dispozitivului' }),
   h('button', { type: 'submit', class: 'principal', disabled: !suportat() }, ic('fingerprint'), 'Adaugă passkey'));
 
   afiseaza('profil',
@@ -1110,7 +1110,7 @@ async function paginaProfil() {
       h('a', { href: '#/admin/parola', class: 'buton' }, ic('key'), 'Schimbă parola')),
     h('div', { class: 'card' },
       h('h2', {}, 'Semnătură electronică (passkey)'),
-      h('p', { class: 'slab' }, 'Cu un passkey semnezi documente cu amprenta, fața, PIN-ul telefonului sau Windows Hello. Poți adăuga câte unul pentru fiecare dispozitiv. Trece codul fiecărei chei pe acordul semnat pe hârtie: dacă o cheie ar fi înlocuită pe ascuns, codul nu s-ar mai potrivi.'),
+      h('p', { class: 'slab' }, 'Cu un passkey semnezi documente cu amprenta, fața, PIN-ul telefonului sau Windows Hello. De obicei passkey-ul se sincronizează singur prin contul tău Google sau Apple, așa că îl ai pe toate dispozitivele tale cu același cod. Adaugă unul nou doar pe un dispozitiv care nu îl vede (de exemplu un calculator fără contul tău). Trece codul fiecărei chei pe acordul semnat pe hârtie: dacă o cheie ar fi înlocuită pe ascuns, codul nu s-ar mai potrivi.'),
       !suportat() && h('p', { class: 'avertizare' }, 'Browserul acesta nu suportă passkey-uri. Folosește un browser actualizat (Chrome, Safari, Edge, Firefox).'),
       ale.length
         ? h('ul', { class: 'lista-chei' }, ale.map((c) => h('li', { class: c.revocataLa ? 'revocata' : null },

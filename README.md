@@ -67,8 +67,9 @@ sesizările apartamentului lui.
 
 ## Semnătură electronică și integritate
 
-- **Passkey (WebAuthn):** fiecare își adaugă din **Profil** unul sau mai multe passkey-uri (telefon, PC) și trece **codul
-  cheii** pe acordul semnat pe hârtie. Răspunsurile la sesizări, confirmările și procesele-verbale se semnează cu amprenta,
+- **Passkey (WebAuthn):** fiecare își adaugă din **Profil** un passkey (de obicei se sincronizează singur prin contul Google/
+  Apple pe toate dispozitivele; altul se adaugă doar pe un dispozitiv care nu îl vede) și trece **codul cheii** pe acordul
+  semnat pe hârtie. Răspunsurile la sesizări, confirmările și procesele-verbale se semnează cu amprenta,
   fața, PIN-ul sau Windows Hello; pagina publică verifică fiecare semnătură cu cheia publică din `chei.json`.
   Semnăturile rămân verificabile și după o schimbare de domeniu (fiecare cheie își păstrează domeniul).
 - **Răspunsurile mai vechi** au o semnătură electronică simplă (amprentă SHA-256), verificată în continuare.
