@@ -1,12 +1,12 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=11';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=11';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=12';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=12';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=11';
+} from './store.js?v=12';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=11';
+} from './config.js?v=12';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -47,6 +47,12 @@ const fmtData = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') 
 const fmtDataOra = (iso) => (iso ? new Date(iso).toLocaleString('ro-RO', { dateStyle: 'short', timeStyle: 'short' }) : '');
 const fmtMarime = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const rol = (id) => ROLURI.find((r) => r.id === id);
+const ic = (nume) => h('i', { class: `ic ic-${nume}`, 'aria-hidden': 'true' });
+const ICON_DOMENIU = {
+  apa: 'droplet', electric: 'bolt', gaz: 'flame', lift: 'elevator', interfon: 'door', camere: 'video',
+  curatenie: 'trash', verde: 'plant-2', boxe: 'box', acoperis: 'umbrella', fatade: 'wall', carte: 'book',
+  restante: 'cash', liste: 'receipt', corespondenta: 'mail', altele: 'help-circle',
+};
 const domeniu = (id) => DOMENII.find((d) => d.id === id);
 const aniDisponibili = () => {
   const ani = [];
@@ -137,42 +143,38 @@ function alertaTermen(x) {
 // ---------- cadru ----------
 
 function cadru(activ, ...continut) {
-  const link = (hash, text, id) => h('a', { href: hash, class: activ === id ? 'activ' : null }, text);
+  const link = (hash, icon, text, id) => h('a', { href: hash, class: activ === id ? 'activ' : null }, ic(icon), h('span', {}, text));
   const nav = eProprietar()
     ? [
-      link('#/admin', 'Sesizările mele', 'admin'),
-      link('#/admin/sesizare-noua', '+ Sesizare nouă', 'sesizare-noua'),
-      link('#/', 'Toate sesizările', 'public'),
+      link('#/admin', 'home', 'Ale mele', 'admin'),
+      link('#/admin/sesizare-noua', 'plus', 'Sesizare nouă', 'sesizare-noua'),
+      link('#/', 'list', 'Toate', 'public'),
     ]
     : conectat()
     ? [
-      link('#/admin', 'Sesizări', 'admin'),
-      poateInregistra() && link('#/admin/sesizare-noua', '+ Sesizare', 'sesizare-noua'),
-      link('#/admin/registru', 'Registru', 'registru'),
-      poateInregistra() && link('#/admin/document-nou', '+ Document', 'document-nou'),
-      ePresedinte() && link('#/admin/utilizatori', 'Utilizatori', 'utilizatori'),
-      link('#/', 'Pagina publică', 'public'),
+      link('#/admin', 'home', 'Sesizări', 'admin'),
+      poateInregistra() && link('#/admin/sesizare-noua', 'plus', 'Sesizare', 'sesizare-noua'),
+      link('#/admin/registru', 'notebook', 'Registru', 'registru'),
+      poateInregistra() && link('#/admin/document-nou', 'file-text', 'Document', 'document-nou'),
+      ePresedinte() && link('#/admin/utilizatori', 'users', 'Utilizatori', 'utilizatori'),
+      link('#/', 'list', 'Public', 'public'),
     ]
     : [
-      link('#/', 'Sesizări', 'public'),
-      link('#/cum', 'Cum depun o sesizare', 'cum'),
-      link('#/admin', 'Conectare', 'login'),
+      link('#/', 'home', 'Sesizări', 'public'),
+      link('#/cum', 'pencil', 'Depune', 'cum'),
+      link('#/admin', 'user', 'Conectare', 'login'),
     ];
-  const meniu = h('nav', { id: 'meniu' }, nav);
   return [
     h('header', { class: 'antet' },
       h('a', { href: conectat() ? '#/admin' : '#/', class: 'titlu' },
         h('strong', {}, ASOCIATIA.nume),
         h('span', {}, eAdministratie() ? 'Registru electronic — administrație' : 'Registru electronic de sesizări')),
-      h('button', { class: 'meniu-buton', 'aria-label': 'Meniu', 'aria-expanded': 'false', onclick: (ev) => {
-        const deschis = meniu.classList.toggle('deschis');
-        ev.currentTarget.setAttribute('aria-expanded', String(deschis));
-      } }, '☰'),
-      meniu,
+      h('nav', { id: 'meniu' }, nav),
       conectat() && h('div', { class: 'utilizator' },
-        h('span', {}, eticheta(S.cont.u)),
-        h('a', { href: '#/admin/parola' }, 'Parola'),
-        h('button', { class: 'link', onclick: iesire }, 'Ieșire'))),
+        h('span', { class: 'nume' }, eticheta(S.cont.u)),
+        h('a', { href: '#/admin/parola', title: 'Schimbă parola', 'aria-label': 'Schimbă parola' }, ic('key')),
+        h('button', { onclick: iesire, title: 'Ieșire', 'aria-label': 'Ieșire' }, ic('logout'))),
+      h('div', { class: 'titlu-pagina' })),
     h('main', {},
       S.mesaj && h('p', { class: 'succes', role: 'status' }, S.mesaj),
       continut),
@@ -182,6 +184,9 @@ function cadru(activ, ...continut) {
 
 function afiseaza(activ, ...continut) {
   $app.replaceChildren(...cadru(activ, ...continut));
+  // Titlul paginii stă în antetul verde (nu și cel din cardurile de conectare / parolă).
+  const titlu = $app.querySelector('main > h1, main > .bara > h1');
+  if (titlu) $app.querySelector('.titlu-pagina').append(titlu);
   S.mesaj = null;
   window.scrollTo(0, 0);
 }
@@ -270,6 +275,8 @@ function listaSesizari(lista, linkFn, { admin = false } = {}) {
   if (!lista.length) return h('p', { class: 'gol' }, 'Nicio sesizare nu corespunde.');
   return h('ul', { class: 'lista-sesizari' }, lista.map((x) => h('li', {},
     h('a', { href: linkFn(x), class: 'rand-sesizare' },
+      h('span', { class: `placa ${termenInfo(x)?.nivel === 'depasit' ? 'depasit' : termenInfo(x)?.nivel === 'aproape' ? 'aproape' : x.stare}` },
+        ic(ICON_DOMENIU[x.domeniu] || 'help-circle')),
       h('div', { class: 'rand-cap' },
         h('span', { class: 'nr' }, `Nr. ${x.nr}`),
         h('span', { class: 'slab' }, fmtData(x.data)),
@@ -299,13 +306,12 @@ async function paginaPublica() {
   };
   const deschise = date.sesizari.filter((x) => !STARI_FINALE.includes(x.stare)).length;
   afiseaza('public',
-    h('div', { class: 'bara' },
-      h('h1', {}, 'Sesizări ', selectAn(paginaPublica)),
-      h('a', { href: '#/cum', class: 'buton principal' }, 'Cum depun o sesizare')),
+    h('h1', {}, 'Sesizări ', selectAn(paginaPublica)),
     h('div', { class: 'contoare' },
-      h('div', { class: 'contor' }, h('strong', {}, date.sesizari.length), h('span', {}, 'înregistrate')),
-      h('div', { class: 'contor' }, h('strong', {}, deschise), h('span', {}, 'în lucru')),
-      h('div', { class: 'contor' }, h('strong', {}, date.sesizari.length - deschise), h('span', {}, 'cu răspuns'))),
+      h('div', { class: 'contor' }, h('strong', {}, date.sesizari.length), h('span', {}, 'total')),
+      h('div', { class: 'contor galben' }, h('strong', {}, deschise), h('span', {}, 'în lucru')),
+      h('div', { class: 'contor verde' }, h('strong', {}, date.sesizari.length - deschise), h('span', {}, 'cu răspuns'))),
+    h('a', { href: eProprietar() ? '#/admin/sesizare-noua' : '#/cum', class: 'buton principal cta-mare' }, ic('plus'), 'Depune o sesizare'),
     bareFiltre(deseneaza),
     contor,
     zona);
@@ -472,7 +478,7 @@ async function paginaPublicaDetaliu(an, nr) {
   } catch (e) { return eroarePagina('public', e); }
   if (!x) return afiseaza('public', h('p', { class: 'eroare' }, `Sesizarea nr. ${nr}/${an} nu a fost găsită.`), h('a', { href: '#/' }, '← Înapoi'));
   afiseaza('public',
-    h('a', { href: '#/', class: 'inapoi nu-tipari' }, '← Toate sesizările'),
+    h('a', { href: '#/', class: 'inapoi nu-tipari' }, ic('arrow-left'), 'Toate sesizările'),
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
     h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
     h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x), x.listaLunara && !STARI_FINALE.includes(x.stare) && h('span', { class: 'eticheta' }, 'Pe lista ședinței lunare')),
@@ -816,7 +822,7 @@ async function paginaAdminDetaliu(an, nr) {
   }
 
   afiseaza('admin',
-    h('a', { href: '#/admin', class: 'inapoi nu-tipari' }, eProprietar() ? '← Sesizările mele' : '← Sesizări'),
+    h('a', { href: '#/admin', class: 'inapoi nu-tipari' }, ic('arrow-left'), eProprietar() ? 'Sesizările mele' : 'Sesizări'),
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
     h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
     h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x), x.listaLunara && !finala && h('span', { class: 'eticheta' }, 'Pe lista ședinței lunare'),
@@ -846,7 +852,7 @@ function detaliuDocument(an, x) {
   const conexat = x.conexat && /^\d+\/\d{4}$/.test(x.conexat)
     ? h('a', { href: `#/admin/s/${x.conexat.split('/')[1]}/${x.conexat.split('/')[0]}` }, `nr. ${x.conexat}`) : x.conexat;
   afiseaza('registru',
-    h('a', { href: '#/admin/registru', class: 'inapoi' }, '← Registru'),
+    h('a', { href: '#/admin/registru', class: 'inapoi' }, ic('arrow-left'), 'Registru'),
     h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
     h('div', { class: 'card' }, h('dl', { class: 'detalii' },
       rand('Tip', TIPURI_DOC[x.tip]),
@@ -1011,7 +1017,6 @@ async function paginaUtilizatori() {
 // ---------- rutare ----------
 
 async function ruta() {
-  document.getElementById('meniu')?.classList.remove('deschis');
   const [cale] = location.hash.replace(/^#/, '').split('?');
   const p = cale.split('/').filter(Boolean);
 
