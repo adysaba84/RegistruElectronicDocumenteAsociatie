@@ -1,14 +1,15 @@
-import { GitHubRepo, GitHubError } from './github.js?v=5';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=5';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=7';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=7';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=5';
+} from './store.js?v=7';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=5';
+} from './config.js?v=7';
 
 const API = apiBase();
+activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
 const $app = document.getElementById('app');
 const CHEIE_SESIUNE = 'registru.sesiune';
 const AN_START = 2026;
@@ -95,15 +96,21 @@ function numeRol(id) {
   return c?.apartament ? `${r.nume} (ap. ${c.apartament})` : r.nume;
 }
 function eticheta(u) {
+  if (u === 'autor') return 'Autorul sesizării';
   const c = S.conturi?.gaseste(u);
+  if (c?.rol === 'proprietar') return `Ap. ${c.apartament}`;
   return c ? numeRol(c.rol) : (ROLURI.find((r) => r.u === u)?.nume || u);
 }
 
 const conectat = () => Boolean(S.cont);
+const eProprietar = () => S.cont?.rol === 'proprietar';
+const eAdministratie = () => conectat() && !eProprietar();
+const poateSesizare = () => eProprietar() || poateInregistra();
+const vizibila = (x) => !eProprietar() || (CATEGORII_SESIZARE.includes(x.categorie) && x.apartament === S.cont.apartament);
 const ePresedinte = () => S.cont?.rol === 'presedinte';
 const poateInregistra = () => ['presedinte', 'r10'].includes(S.cont?.rol);
 const poateLucra = (x) => ePresedinte() || x.responsabil === S.cont?.rol;
-const poateNota = () => conectat() && S.cont.rol !== 'cenzor';
+const poateNota = () => eAdministratie() && S.cont.rol !== 'cenzor';
 
 function insignaStare(x) {
   return h('span', { class: `eticheta stare-${x.stare}` }, STARI[x.stare]);
@@ -131,7 +138,13 @@ function alertaTermen(x) {
 
 function cadru(activ, ...continut) {
   const link = (hash, text, id) => h('a', { href: hash, class: activ === id ? 'activ' : null }, text);
-  const nav = conectat()
+  const nav = eProprietar()
+    ? [
+      link('#/admin', 'Sesizările mele', 'admin'),
+      link('#/admin/sesizare-noua', '+ Sesizare nouă', 'sesizare-noua'),
+      link('#/', 'Toate sesizările', 'public'),
+    ]
+    : conectat()
     ? [
       link('#/admin', 'Sesizări', 'admin'),
       poateInregistra() && link('#/admin/sesizare-noua', '+ Sesizare', 'sesizare-noua'),
@@ -143,14 +156,14 @@ function cadru(activ, ...continut) {
     : [
       link('#/', 'Sesizări', 'public'),
       link('#/cum', 'Cum depun o sesizare', 'cum'),
-      link('#/admin', 'Administrație', 'login'),
+      link('#/admin', 'Conectare', 'login'),
     ];
   const meniu = h('nav', { id: 'meniu' }, nav);
   return [
     h('header', { class: 'antet' },
       h('a', { href: conectat() ? '#/admin' : '#/', class: 'titlu' },
         h('strong', {}, ASOCIATIA.nume),
-        h('span', {}, conectat() ? 'Registru electronic — administrație' : 'Registru electronic de sesizări')),
+        h('span', {}, eAdministratie() ? 'Registru electronic — administrație' : 'Registru electronic de sesizări')),
       h('button', { class: 'meniu-buton', 'aria-label': 'Meniu', 'aria-expanded': 'false', onclick: (ev) => {
         const deschis = meniu.classList.toggle('deschis');
         ev.currentTarget.setAttribute('aria-expanded', String(deschis));
@@ -162,6 +175,8 @@ function cadru(activ, ...continut) {
         h('button', { class: 'link', onclick: iesire }, 'Ieșire'))),
     h('main', {},
       S.mesaj && h('p', { class: 'succes', role: 'status' }, S.mesaj),
+      S.reg?.eroarePublicare && eAdministratie() && h('p', { class: 'avertizare' },
+        `Pagina publică nu s-a putut actualiza (${mesajEroare(S.reg.eroarePublicare)}). Deschide o sesizare și apasă „Republică”.`),
       continut),
     h('footer', { class: 'subsol' }, `${ASOCIATIA.nume} · ${ASOCIATIA.adresa} · ${ASOCIATIA.email}`),
   ];
@@ -335,7 +350,7 @@ function paginaCum() {
     const subiect = `${CATEGORII[c.categorie]} — Ap. ${c.apartament} — ${domeniu(c.domeniu)?.nume || ''}`;
     location.href = `mailto:${ASOCIATIA.email}?subject=${encodeURIComponent(subiect)}&body=${encodeURIComponent(textSesizare(c))}`;
   } },
-  h('h2', {}, 'Completează sesizarea aici'),
+  h('h2', {}, 'Fără cont: trimite pe e-mail'),
   h('p', { class: 'slab' }, 'Formularul pregătește sesizarea în formatul cerut de regulament și o trimite pe e-mail asociației, din aplicația ta de e-mail. Primește număr de înregistrare când o înregistrează responsabilul cu corespondența.'),
   h('div', { class: 'grila' },
     h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
@@ -372,14 +387,22 @@ function paginaCum() {
     h('div', { class: 'card nu-tipari' },
       h('p', {}, 'Sesizările, propunerile și contestațiile se depun numai în scris (Regulamentul intern, art. 20), pe unul dintre canalele oficiale:'),
       h('ul', {},
-        h('li', {}, h('strong', {}, 'prin această platformă'), ' — completezi formularul de mai jos și se trimite pe e-mail asociației;'),
+        h('li', {}, h('strong', {}, 'prin această platformă'), ' — cu contul apartamentului (se înregistrează direct) sau prin formularul de mai jos, trimis pe e-mail;'),
         h('li', {}, 'e-mail: ', h('a', { href: `mailto:${ASOCIATIA.email}` }, ASOCIATIA.email), ';'),
         h('li', {}, 'e-bloc, secțiunea „Contact”;'),
         h('li', {}, 'pe hârtie, în cutia poștală a asociației sau predată responsabilului cu corespondența.')),
       h('p', { class: 'slab' }, 'Sesizările verbale, telefonice sau pe WhatsApp nu se înregistrează și nu primesc răspuns.'),
       h('p', {}, `Fiecare sesizare primește un număr de înregistrare și apare pe pagina „Sesizări”, fără numele tău și fără numărul apartamentului. Răspunsul scris se dă în cel mult ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
       h('p', { class: 'slab' }, 'O sesizare fără propunere de soluție primește răspuns în termen, dar se discută la ședința lunară a comitetului (art. 23). Contestațiile la lista de plată se depun în 10 zile de la afișarea listei (art. 28 alin. (3)).')),
-    form,
+    h('div', { class: 'card nu-tipari evidentiat' },
+      h('h2', {}, 'Depune direct pe platformă'),
+      eProprietar()
+        ? [h('p', {}, `Ești conectat cu contul apartamentului ${S.cont.apartament}. Sesizarea se salvează direct în registru și primește imediat număr de înregistrare.`),
+          h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Sesizare nouă')]
+        : [h('p', {}, 'Conectează-te cu contul apartamentului (de pe biletul primit de la asociație). Sesizarea se salvează direct în registru și primește imediat număr de înregistrare; apoi urmărești răspunsul în „Sesizările mele”.'),
+          h('a', { href: '#/admin', class: 'buton principal' }, 'Conectare apartament')]),
+    !eProprietar() && h('p', { class: 'slab nu-tipari' }, 'Nu ai încă cont? Poți completa formularul de mai jos, care se trimite pe e-mail asociației.'),
+    !eProprietar() && form,
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
     previzualizare,
     h('p', { class: 'doar-tipar' }, 'Semnătura: ______________________'));
@@ -409,7 +432,7 @@ async function blocRaspuns(x, an) {
 }
 
 function blocIstoric(x) {
-  const lista = (x.istoric || []).filter((i) => conectat() || !i.intern);
+  const lista = (x.istoric || []).filter((i) => eAdministratie() || !i.intern);
   if (!lista.length) return null;
   return h('div', { class: 'card nu-tipari' },
     h('h2', {}, 'Istoric'),
@@ -478,10 +501,10 @@ async function ecranLogin(eroare = '') {
       ecranLogin(mesajEroare(e));
     }
   } },
-  h('h1', {}, 'Administrație'),
-  h('p', { class: 'slab' }, 'Acces pentru președinte, responsabilii de domeniu, cenzor și administrator.'),
+  h('h1', {}, 'Conectare'),
+  h('p', { class: 'slab' }, 'Cu contul apartamentului (ex. ap12) sau cu contul de administrație, de pe biletul primit de la asociație.'),
   eroare && h('p', { class: 'eroare', role: 'alert' }, eroare),
-  h('label', {}, 'Utilizator', h('input', { name: 'u', required: true, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'ex. resp02' })),
+  h('label', {}, 'Utilizator', h('input', { name: 'u', required: true, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'ex. ap12' })),
   h('label', {}, 'Parola', h('input', { name: 'p', type: 'password', required: true, autocomplete: 'current-password' })),
   h('button', { type: 'submit', class: 'principal' }, 'Conectare'),
   h('p', { class: 'slab mic' }, 'Ai uitat parola? Cere președintelui o parolă temporară nouă.'));
@@ -494,9 +517,8 @@ async function intra(cont, token) {
   S.token = token;
   const gh = new GitHubRepo({ apiBase: API, token, repo: REPO_DATE });
   const ghPublic = new GitHubRepo({ apiBase: API, token, repo: REPO_PUBLIC });
-  await ghPublic.info();
   S.reg = new Registru(gh, ghPublic, cont);
-  await S.reg.init();
+  await Promise.all([ghPublic.info(), S.reg.init()]);
   S.ani = await S.reg.ani();
   if (!S.ani.includes(S.an)) S.an = S.ani[0];
   if (cont.temporara) return ecranParola(true);
@@ -543,7 +565,7 @@ function bilete(lista) {
   const site = `${location.origin}${location.pathname}#/admin`;
   return h('div', { class: 'bilete' }, lista.map((b) => h('div', { class: 'bilet' },
     h('strong', {}, ASOCIATIA.nume),
-    h('span', {}, `Cont: ${numeRol(b.rol)}`),
+    h('span', {}, `Cont: ${b.rol === 'proprietar' ? `Apartamentul ${b.apartament}` : numeRol(b.rol)}`),
     h('span', {}, 'Site: ', h('b', {}, site)),
     h('span', {}, 'Utilizator: ', h('b', { class: 'cod' }, b.u)),
     h('span', {}, 'Parolă temporară: ', h('b', { class: 'cod' }, b.parola)),
@@ -599,7 +621,8 @@ async function paginaAdmin() {
   seIncarca('admin');
   let reg;
   try { reg = await S.reg.citesteAn(S.an); } catch (e) { return eroarePagina('admin', e); }
-  const toate = reg.inregistrari.filter((x) => CATEGORII_SESIZARE.includes(x.categorie));
+  const toate = reg.inregistrari.filter((x) => CATEGORII_SESIZARE.includes(x.categorie) && vizibila(x));
+  if (eProprietar()) return paginaMele(toate);
   const nr = (f) => toate.filter(f).length;
   const deschise = (x) => !STARI_FINALE.includes(x.stare);
   const n = {
@@ -634,6 +657,22 @@ async function paginaAdmin() {
   deseneaza();
 }
 
+function paginaMele(toate) {
+  S.filtre.rapid = '';
+  const zona = h('div');
+  const deseneaza = () => zona.replaceChildren(toate.length
+    ? listaSesizari(filtreazaSesizari(toate), (x) => `#/admin/s/${S.an}/${x.nr}`)
+    : h('p', { class: 'gol' }, `Apartamentul nu are sesizări în ${S.an}.`));
+  afiseaza('admin',
+    h('div', { class: 'bara' },
+      h('h1', {}, `Sesizările mele — Ap. ${S.cont.apartament} `, selectAn(paginaAdmin)),
+      h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Sesizare nouă')),
+    h('p', { class: 'slab' }, `Primești răspuns scris în cel mult ${TERMEN_RASPUNS_ZILE} zile de la înregistrare. Pe pagina publică sesizarea apare fără numele tău și fără apartament.`),
+    toate.length > 3 && bareFiltre(deseneaza),
+    zona);
+  deseneaza();
+}
+
 function formularSesizare() {
   const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
   const fisiere = h('input', { type: 'file', name: 'fisiere', multiple: true, accept: '.pdf,.jpg,.jpeg,.png,.heic,.doc,.docx' });
@@ -658,7 +697,7 @@ function formularSesizare() {
     try {
       const r = await S.reg.adaugaSesizare(c, noi);
       S.mesaj = `Sesizarea a fost înregistrată cu nr. ${r.x.nr} din ${fmtData(r.x.data)}${r.x.termen ? `. Termen de răspuns: ${fmtData(r.x.termen)}` : ''}.`
-        + (r.publicat ? '' : ' Atenție: pagina publică nu s-a actualizat — reîncearcă din butonul „Republică”.');
+;
       mergi(`#/admin/s/${r.an}/${r.x.nr}`);
     } catch (e) {
       btn.disabled = false;
@@ -667,12 +706,16 @@ function formularSesizare() {
       eroare.hidden = false;
     }
   } },
-  h('p', { class: 'slab' }, 'Numărul de înregistrare și data se dau automat. Completează după formularul primit (Regulamentul intern, art. 21).'),
+  h('p', { class: 'slab' }, eProprietar()
+    ? `Numărul de înregistrare și data se dau automat la salvare. Primești răspuns scris în cel mult ${TERMEN_RASPUNS_ZILE} zile (Regulamentul intern, art. 21–22).`
+    : 'Numărul de înregistrare și data se dau automat. Completează după formularul primit (Regulamentul intern, art. 21).'),
   h('div', { class: 'grila' },
-    h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
-      h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`)))),
-    h('label', {}, 'Nume și prenume *', h('input', { name: 'nume', required: true, autocomplete: 'off' })),
-    h('label', {}, 'Primită prin *', h('select', { name: 'canal', required: true },
+    eProprietar()
+      ? h('label', {}, 'Apartamentul', h('input', { value: `Ap. ${S.cont.apartament}`, disabled: true }))
+      : h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
+        h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`)))),
+    h('label', {}, 'Nume și prenume *', h('input', { name: 'nume', required: true, autocomplete: eProprietar() ? 'name' : 'off' })),
+    !eProprietar() && h('label', {}, 'Primită prin *', h('select', { name: 'canal', required: true },
       Object.entries(CANALE).filter(([k]) => k !== 'aplicatie').map(([v, t]) => h('option', { value: v }, t)))),
     h('label', {}, 'Domeniul *', alegeDomeniu, repartizare)),
   h('fieldset', {}, h('legend', {}, 'Tipul'), radio('categorie', { sesizare: 'Sesizare', contestatie: 'Contestație la lista de plată', propunere: 'Propunere de proiect' }, 'sesizare')),
@@ -682,19 +725,19 @@ function formularSesizare() {
       h('span', { class: 'slab mic' }, 'Fără soluție propusă, sesizarea primește răspuns în termen, dar se discută la ședința lunară (art. 23).')),
     h('label', {}, 'Costul estimat', h('input', { name: 'cost', placeholder: 'ex. 500 lei' }))),
   h('fieldset', {}, h('legend', {}, 'Se ocupă autorul de soluție?'), radio('maOcup', OCUPARE, 'nu')),
-  h('label', {}, 'Scanul sesizării / fotografii (max. 25 MB fiecare)', fisiere),
+  h('label', {}, eProprietar() ? 'Fotografii / documente (opțional, max. 25 MB fiecare)' : 'Scanul sesizării / fotografii (max. 25 MB fiecare)', fisiere),
   eroare,
   h('div', { class: 'actiuni' },
-    h('button', { type: 'submit', class: 'principal' }, 'Înregistrează sesizarea'),
+    h('button', { type: 'submit', class: 'principal' }, eProprietar() ? 'Trimite sesizarea' : 'Înregistrează sesizarea'),
     h('a', { href: '#/admin', class: 'buton' }, 'Renunță')));
-  afiseaza('sesizare-noua', h('h1', {}, 'Înregistrează o sesizare'), form);
+  afiseaza('sesizare-noua', h('h1', {}, eProprietar() ? 'Sesizare nouă' : 'Înregistrează o sesizare'), form);
 }
 
 async function paginaAdminDetaliu(an, nr) {
   seIncarca('admin');
   let x;
   try { x = (await S.reg.citesteAn(an)).inregistrari.find((i) => i.nr === nr); } catch (e) { return eroarePagina('admin', e); }
-  if (!x) return afiseaza('admin', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există.`), h('a', { href: '#/admin' }, '← Înapoi'));
+  if (!x || !vizibila(x)) return afiseaza('admin', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există.`), h('a', { href: '#/admin' }, '← Înapoi'));
   if (!CATEGORII_SESIZARE.includes(x.categorie)) return detaliuDocument(an, x);
 
   const actiune = (fn, mesaj) => async (ev) => {
@@ -702,7 +745,7 @@ async function paginaAdminDetaliu(an, nr) {
     btn.disabled = true;
     try {
       const r = await fn();
-      S.mesaj = (typeof mesaj === 'function' ? mesaj(r) : mesaj) + (r && r.publicat === false ? ' Atenție: pagina publică nu s-a actualizat.' : '');
+      S.mesaj = typeof mesaj === 'function' ? mesaj(r) : mesaj;
       paginaAdminDetaliu(an, nr);
     } catch (e) {
       btn.disabled = false;
@@ -715,6 +758,8 @@ async function paginaAdminDetaliu(an, nr) {
   // Răspuns
   if (x.raspuns) {
     blocuri.push(await blocRaspuns(x, an));
+  } else if (eProprietar()) {
+    blocuri.push(h('div', { class: 'card' }, h('p', { class: 'slab' }, x.termen ? `Răspunsul va apărea aici. Termen: ${fmtData(x.termen)}.` : 'Răspunsul va apărea aici.')));
   } else {
     const parti = [h('h2', {}, 'Răspuns')];
     if (x.raspunsDraft) {
@@ -755,7 +800,7 @@ async function paginaAdminDetaliu(an, nr) {
     if (x.stare === 'raspuns_trimis') act.push(h('button', { onclick: actiune(() => S.reg.inchide(an, nr, prompt('Notă de închidere (opțional, apare public):') || ''), 'Sesizarea a fost închisă.') }, 'Închide (rezolvată)'));
     if (x.stare === 'inchisa') act.push(h('button', { onclick: actiune(() => S.reg.redeschide(an, nr), 'Sesizarea a fost redeschisă.') }, 'Redeschide'));
     if (!finala) act.push(h('button', { onclick: actiune(() => S.reg.seteazaListaLunara(an, nr, !x.listaLunara), 'Actualizat.') }, x.listaLunara ? 'Scoate de pe lista lunară' : 'Pune pe lista ședinței lunare'));
-    act.push(h('button', { onclick: actiune(() => S.reg.publica(an).then(() => ({ publicat: true })), 'Pagina publică a fost actualizată.') }, 'Republică'));
+    act.push(h('button', { onclick: actiune(() => S.reg.publica(an).then(() => { S.reg.eroarePublicare = null; }), 'Pagina publică a fost actualizată.') }, 'Republică'));
   }
   if (poateNota()) {
     const nota = h('textarea', { rows: 2, placeholder: 'Notă internă (nu apare public)…', 'aria-label': 'Notă internă' });
@@ -765,7 +810,7 @@ async function paginaAdminDetaliu(an, nr) {
   }
 
   afiseaza('admin',
-    h('a', { href: '#/admin', class: 'inapoi nu-tipari' }, '← Sesizări'),
+    h('a', { href: '#/admin', class: 'inapoi nu-tipari' }, eProprietar() ? '← Sesizările mele' : '← Sesizări'),
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
     h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
     h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x), x.listaLunara && !finala && h('span', { class: 'eticheta' }, 'Pe lista ședinței lunare'),
@@ -904,7 +949,29 @@ async function paginaUtilizatori() {
     el.disabled = true;
     try { await fn(); } catch (e) { alert(mesajEroare(e)); } finally { el.disabled = false; }
   };
-  const randuri = S.conturi.utilizatori.map((c) => {
+  const arataBilete = (parole, text) => {
+    bilet.replaceChildren(h('div', { class: 'card' },
+      h('p', { class: 'avertizare' }, text),
+      h('button', { class: 'principal', onclick: tiparesteBilete }, `Tipărește biletele (${parole.length})`),
+      bilete(parole)));
+    window.scrollTo(0, 0);
+  };
+  const progres = h('span', { class: 'slab mic' });
+  const nefolosite = S.conturi.utilizatori.filter((c) => c.rol === 'proprietar' && c.temporara).length;
+  const lipsa = APARTAMENTE - S.conturi.utilizatori.filter((c) => c.rol === 'proprietar').length;
+  const bileteApartamente = h('div', { class: 'card' },
+    h('h2', {}, 'Conturile apartamentelor'),
+    h('p', {}, `${APARTAMENTE - lipsa - nefolosite} din ${APARTAMENTE} apartamente și-au ales parola.`
+      + (lipsa ? ` ${lipsa} conturi nu sunt încă create.` : '')),
+    h('p', { class: 'slab mic' }, 'Parolele temporare nu se pot reafișa. Butonul generează parole noi pentru apartamentele care nu s-au conectat încă (ce au deja parola lor rămân neatinse) și afișează biletele de tipărit.'),
+    h('div', { class: 'actiuni' },
+      h('button', { class: 'principal', onclick: actiune(async () => {
+        if (!confirm('Generezi bilete noi pentru apartamentele care nu și-au ales încă parola? Biletele vechi nefolosite nu vor mai funcționa.')) return;
+        const parole = await S.conturi.reseteazaMai(S.token, (c) => c.rol === 'proprietar' && c.temporara, (i, n) => { progres.textContent = `${i}/${n}`; });
+        arataBilete(parole.filter((b) => b.rol === 'proprietar'), 'Bilete pentru apartamente — se afișează o singură dată. Tipărește-le și pune-le în cutiile poștale.');
+      }) }, 'Generează biletele apartamentelor'),
+      progres));
+  const randuri = S.conturi.utilizatori.filter((c) => c.rol !== 'proprietar').map((c) => {
     const ap = h('select', { 'aria-label': `Apartament ${c.u}`, onchange: actiune(async () => {
       await S.conturi.seteazaApartament(S.token, c.u, ap.value ? Number(ap.value) : null);
     }) }, h('option', { value: '' }, '—'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1, selected: c.apartament === i + 1 }, `Ap. ${i + 1}`)));
@@ -915,18 +982,29 @@ async function paginaUtilizatori() {
       c.u !== S.cont.u && h('button', { onclick: actiune(async () => {
         if (!confirm(`Resetezi parola pentru ${c.u}? Parola veche nu va mai funcționa.`)) return;
         const parola = await S.conturi.reseteaza(S.token, c.u);
-        bilet.replaceChildren(h('div', { class: 'card' },
-          h('p', { class: 'avertizare' }, `Parolă temporară nouă pentru ${c.u}. Se afișează o singură dată.`),
-          bilete([{ u: c.u, rol: c.rol, parola }]),
-          h('button', { class: 'principal', onclick: tiparesteBilete }, 'Tipărește biletul')));
-        window.scrollTo(0, 0);
+        arataBilete([{ u: c.u, rol: c.rol, apartament: c.apartament, parola }], `Parolă temporară nouă pentru ${c.u}. Se afișează o singură dată.`);
       }) }, 'Resetează parola'));
   });
+  const reseteazaAp = h('form', { class: 'rand-actiune', onsubmit: (ev) => {
+    ev.preventDefault();
+    const u = `ap${String(reseteazaAp.ap.value).padStart(2, '0')}`;
+    actiune(async () => {
+      if (!S.conturi.gaseste(u)) throw new Error(`Contul ${u} nu există încă — folosește „Generează biletele apartamentelor”.`);
+      if (!confirm(`Resetezi parola pentru ${u}?`)) return;
+      const parola = await S.conturi.reseteaza(S.token, u);
+      arataBilete([{ u, rol: 'proprietar', apartament: Number(reseteazaAp.ap.value), parola }], `Parolă temporară nouă pentru ${u}. Se afișează o singură dată.`);
+    })({ currentTarget: reseteazaAp.querySelector('button') });
+  } },
+  h('select', { name: 'ap', 'aria-label': 'Apartament' }, Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`))),
+  h('button', { type: 'submit' }, 'Resetează parola apartamentului'));
+  bileteApartamente.append(reseteazaAp);
   afiseaza('utilizatori',
     h('h1', {}, 'Utilizatori'),
     h('p', { class: 'slab' }, 'Fiecare rol se atribuie unui apartament (nu unei persoane). Apartamentul apare lângă rol în aplicație și pe pagina publică.'),
     bilet,
-    h('ul', { class: 'lista-utilizatori card' }, randuri));
+    h('h2', {}, 'Administrație'),
+    h('ul', { class: 'lista-utilizatori card' }, randuri),
+    bileteApartamente);
 }
 
 // ---------- rutare ----------
@@ -944,10 +1022,10 @@ async function ruta() {
   if (!conectat()) return ecranLogin();
   if (S.cont.temporara) return ecranParola(true);
   switch (p[1]) {
-    case 'sesizare-noua': return poateInregistra() ? formularSesizare() : paginaAdmin();
+    case 'sesizare-noua': return poateSesizare() ? formularSesizare() : paginaAdmin();
     case 'document-nou': return poateInregistra() ? paginaDocumentNou() : paginaAdmin();
     case 's': return paginaAdminDetaliu(Number(p[2]), Number(p[3]));
-    case 'registru': return paginaRegistru();
+    case 'registru': return eAdministratie() ? paginaRegistru() : paginaAdmin();
     case 'utilizatori': return ePresedinte() ? paginaUtilizatori() : paginaAdmin();
     case 'parola': return ecranParola(false);
     default: return paginaAdmin();

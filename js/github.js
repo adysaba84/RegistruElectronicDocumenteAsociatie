@@ -10,6 +10,11 @@ export class GitHubError extends Error {
 
 export class ConflictError extends Error {}
 
+// Câte cereri sunt în curs (pentru bara de încărcare din interfață).
+let inCurs = 0;
+export const activitate = { la: () => {} };
+const semnaleaza = (d) => { inCurs += d; activitate.la(inCurs); };
+
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -30,7 +35,16 @@ export class GitHubRepo {
     this.branch = null;
   }
 
-  async request(method, path, { body, accept, allow404 = false } = {}) {
+  async request(method, path, opts = {}) {
+    semnaleaza(1);
+    try {
+      return await this.cerere(method, path, opts);
+    } finally {
+      semnaleaza(-1);
+    }
+  }
+
+  async cerere(method, path, { body, accept, allow404 = false } = {}) {
     const res = await fetch(`${this.apiBase}${path}`, {
       method,
       cache: 'no-store',
@@ -152,7 +166,7 @@ export class GitHubRepo {
       const head = await this.head();
       const { files, result } = await build(head);
       try {
-        await this.commitFiles(head, files, message(result));
+        this.ultimulCommit = await this.commitFiles(head, files, message(result));
         return result;
       } catch (e) {
         if (!(e instanceof ConflictError) || i === attempts - 1) throw e;

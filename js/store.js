@@ -7,7 +7,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=5';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=7';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -127,7 +127,7 @@ export function vederePublica(reg) {
         nr: x.raspuns.nr, an: x.raspuns.an, data: x.raspuns.data, text: x.raspuns.text,
         semnatDe: x.raspuns.semnatDe, semnatLa: x.raspuns.semnatLa, amprenta: x.raspuns.amprenta,
       } : null,
-      istoric: (x.istoric || []).filter((i) => !i.intern).map(({ la, u, actiune }) => ({ la, u, actiune })),
+      istoric: (x.istoric || []).filter((i) => !i.intern).map(({ la, u, actiune }) => ({ la, u: /^ap\d+$/.test(u) ? 'autor' : u, actiune })),
     })),
   };
 }
@@ -137,6 +137,9 @@ export class Registru {
     this.gh = gh;             // repo privat
     this.ghPublic = ghPublic; // repo public (vederea publică a sesizărilor)
     this.cont = cont;         // { u, rol, apartament }
+    this.cache = {};          // an -> { head, reg }: evită recitirea registrului nemodificat
+    this.publicare = Promise.resolve();
+    this.eroarePublicare = null;
   }
 
   // Regenerează sesizari/<an>.json în repo-ul public din registrul privat.
@@ -150,12 +153,20 @@ export class Registru {
 
   // Scrierea în registrul privat e sursa de adevăr; dacă publicarea eșuează,
   // se reface la următoarea modificare (sau din butonul „Republică”).
-  async cuPublicare(rezultat) {
-    try {
-      await this.publica(rezultat.an);
-      return { ...rezultat, publicat: true };
-    } catch (e) {
-      return { ...rezultat, publicat: false, eroarePublicare: e };
+  // Publicarea rulează în fundal (nu blochează salvarea), câte una pe rând.
+  cuPublicare(rezultat) {
+    this.retine(rezultat.an);
+    this.publicare = this.publicare
+      .then(() => this.publica(rezultat.an))
+      .then(() => { this.eroarePublicare = null; })
+      .catch((e) => { this.eroarePublicare = e; });
+    return rezultat;
+  }
+
+  // După un commit propriu, registrul tocmai scris devine cache-ul pentru noul head.
+  retine(an) {
+    if (this.ultimRegistru?.an === an && this.gh.ultimulCommit) {
+      this.cache[an] = { head: this.gh.ultimulCommit, reg: this.ultimRegistru };
     }
   }
 
@@ -178,7 +189,10 @@ export class Registru {
 
   async citesteAn(an, ref) {
     const head = ref || (await this.gh.head());
-    return (await this.gh.readJson(caleRegistru(an), head)) || { an, inregistrari: [] };
+    if (this.cache[an]?.head === head) return structuredClone(this.cache[an].reg);
+    const reg = (await this.gh.readJson(caleRegistru(an), head)) || { an, inregistrari: [] };
+    this.cache[an] = { head, reg: structuredClone(reg) };
+    return reg;
   }
 
   async urcaFisiere(files) {
@@ -224,8 +238,9 @@ export class Registru {
       x.amprenta = await amprentaInregistrare(x, ultimaAmprenta(reg));
       reg.inregistrari.push(x);
       files.push({ path: caleRegistru(an), text: json(reg) });
+      this.ultimRegistru = reg;
       return { files, result: { an, x } };
-    }, ({ x }) => `Nr. ${x.nr}/${x.data}: ${mesaj(x)} (${this.cont.u})`);
+    }, ({ x }) => `Nr. ${x.nr}/${x.data}: ${mesaj(x)} (${this.cont.u})`).then((r) => { this.retine(an); return r; });
   }
 
   adaugaSesizare(c, fisiere = []) {
@@ -282,8 +297,9 @@ export class Registru {
       const files = Registru.ataseaza(an, x, blobs);
       if (blobs.length) this.istoric(x, `Fișiere adăugate: ${blobs.map((b) => b.nume).join(', ')}`, true);
       files.push({ path: caleRegistru(an), text: json(reg) });
+      this.ultimRegistru = reg;
       return { files, result: { an, x } };
-    }, () => `Nr. ${nr}/${an}: ${descriere} (${this.cont.u})`).then((r) => (
+    }, () => `Nr. ${nr}/${an}: ${descriere} (${this.cont.u})`).then((r) => (this.retine(an), r)).then((r) => (
       CATEGORII_SESIZARE.includes(r.x.categorie) ? this.cuPublicare(r) : r
     ));
   }
@@ -360,6 +376,7 @@ export class Registru {
       this.istoric(s, `Răspuns semnat și înregistrat cu nr. ${r.nr}/${data.split('-').reverse().join('.')}`);
       const files = [{ path: caleRegistru(anCurent), text: json(regCurent) }];
       if (regS !== regCurent) files.push({ path: caleRegistru(an), text: json(regS) });
+      this.ultimRegistru = regS;
       return { files, result: { an, x: s, raspuns: r } };
     }, ({ raspuns }) => `Nr. ${raspuns.nr}: răspuns la nr. ${nr}/${an} (${this.cont.u})`).then((r) => this.cuPublicare(r));
   }
