@@ -292,26 +292,97 @@ async function paginaPublica() {
   deseneaza();
 }
 
+// Formularul public: fără conturi pentru apartamente, compune sesizarea în formatul
+// din regulament și o trimite pe e-mail asociației (sau o copiază / tipărește).
+const TITLURI_SESIZARE = { sesizare: 'SESIZARE', contestatie: 'CONTESTAȚIE LA LISTA DE PLATĂ', propunere: 'PROPUNERE DE PROIECT' };
+
+function textSesizare(c) {
+  return [
+    `${TITLURI_SESIZARE[c.categorie] || 'SESIZARE'} — depusă prin platforma Registru electronic`,
+    '',
+    `Nume și prenume: ${c.nume}`,
+    `Apartamentul: ${c.apartament}`,
+    `Data: ${new Date().toLocaleDateString('ro-RO')}`,
+    `Domeniul: ${domeniu(c.domeniu)?.nume || ''}`,
+    '',
+    'Problema:',
+    c.problema,
+    '',
+    'Soluția pe care o propun:',
+    c.solutie || '—',
+    '',
+    `Costul estimat: ${c.cost || '—'}`,
+    `Mă ocup eu de soluție: ${OCUPARE[c.maOcup] || 'Nu'}`,
+  ].join('\n');
+}
+
 function paginaCum() {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const previzualizare = h('pre', { class: 'cutie text-lung doar-tipar previzualizare' });
+  const radio = (name, obj, implicit) => h('div', { class: 'optiuni' }, Object.entries(obj).map(([v, t]) => h('label', { class: 'bifa' },
+    h('input', { type: 'radio', name, value: v, checked: v === implicit, required: true }), t)));
+  const date = () => {
+    eroare.hidden = true;
+    if (!form.reportValidity()) return null;
+    const c = Object.fromEntries(new FormData(form).entries());
+    previzualizare.textContent = textSesizare(c);
+    return c;
+  };
+  const form = h('form', { class: 'card formular nu-tipari', onsubmit: (ev) => {
+    ev.preventDefault();
+    const c = date();
+    if (!c) return;
+    const subiect = `${CATEGORII[c.categorie]} — Ap. ${c.apartament} — ${domeniu(c.domeniu)?.nume || ''}`;
+    location.href = `mailto:${ASOCIATIA.email}?subject=${encodeURIComponent(subiect)}&body=${encodeURIComponent(textSesizare(c))}`;
+  } },
+  h('h2', {}, 'Completează sesizarea aici'),
+  h('p', { class: 'slab' }, 'Formularul pregătește sesizarea în formatul cerut de regulament și o trimite pe e-mail asociației, din aplicația ta de e-mail. Primește număr de înregistrare când o înregistrează responsabilul cu corespondența.'),
+  h('div', { class: 'grila' },
+    h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
+      h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`)))),
+    h('label', {}, 'Nume și prenume *', h('input', { name: 'nume', required: true, autocomplete: 'name' })),
+    h('label', { class: 'lat' }, 'Domeniul *', h('select', { name: 'domeniu', required: true },
+      h('option', { value: '' }, 'Alege domeniul…'), DOMENII.map((d) => h('option', { value: d.id }, d.nume))))),
+  h('fieldset', {}, h('legend', {}, 'Tipul'), radio('categorie', { sesizare: 'Sesizare', contestatie: 'Contestație la lista de plată', propunere: 'Propunere de proiect' }, 'sesizare')),
+  h('div', { class: 'grila' },
+    h('label', { class: 'lat' }, 'Problema *', h('textarea', { name: 'problema', required: true, rows: 4, maxlength: 1500 })),
+    h('label', { class: 'lat' }, 'Soluția pe care o propun', h('textarea', { name: 'solutie', rows: 3, maxlength: 1000 })),
+    h('label', {}, 'Costul estimat (dacă îl cunosc)', h('input', { name: 'cost' }))),
+  h('fieldset', {}, h('legend', {}, 'Mă ocup eu de soluție?'), radio('maOcup', OCUPARE, 'nu')),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, 'Trimite pe e-mail'),
+    h('button', { type: 'button', onclick: async (ev) => {
+      const btn = ev.currentTarget;
+      const c = date();
+      if (!c) return;
+      try {
+        await navigator.clipboard.writeText(textSesizare(c));
+        btn.textContent = 'Copiat ✓ — lipește în e-bloc, la „Contact”';
+      } catch {
+        eroare.textContent = 'Copierea nu a mers în acest browser. Folosește „Trimite pe e-mail”.';
+        eroare.hidden = false;
+      }
+    } }, 'Copiază textul (pentru e-bloc)'),
+    h('button', { type: 'button', onclick: () => { if (date()) window.print(); } }, 'Tipărește (pentru hârtie)')),
+  h('p', { class: 'slab mic' }, 'Fotografiile sau documentele le atașezi în e-mailul care se deschide.'));
+
   afiseaza('cum',
-    h('h1', {}, 'Cum depun o sesizare'),
-    h('div', { class: 'card' },
+    h('h1', { class: 'nu-tipari' }, 'Cum depun o sesizare'),
+    h('div', { class: 'card nu-tipari' },
       h('p', {}, 'Sesizările, propunerile și contestațiile se depun numai în scris (Regulamentul intern, art. 20), pe unul dintre canalele oficiale:'),
       h('ul', {},
-        h('li', {}, 'e-mail: ', h('a', { href: `mailto:${ASOCIATIA.email}` }, ASOCIATIA.email)),
-        h('li', {}, 'e-bloc, secțiunea „Contact”'),
-        h('li', {}, 'pe hârtie, în cutia poștală a asociației sau predată responsabilului cu corespondența')),
-      h('p', { class: 'slab' }, 'Sesizările verbale, telefonice sau pe WhatsApp nu se înregistrează și nu primesc răspuns.')),
-    h('div', { class: 'card' },
-      h('h2', {}, 'Ce trebuie să conțină (art. 21)'),
-      h('ol', {},
-        h('li', {}, 'numele și apartamentul;'),
-        h('li', {}, 'problema;'),
-        h('li', {}, 'soluția pe care o propui;'),
-        h('li', {}, 'costul estimat, dacă îl cunoști;'),
-        h('li', {}, 'dacă te ocupi tu de soluție (da / nu / pot ajuta).')),
-      h('p', {}, `Sesizarea primește un număr de înregistrare și apare pe această pagină, fără numele tău și fără numărul apartamentului. Răspunsul scris se dă în cel mult ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
-      h('p', { class: 'slab' }, 'O sesizare fără propunere de soluție primește răspuns în termen, dar se discută la ședința lunară a comitetului (art. 23). Contestațiile la lista de plată se depun în 10 zile de la afișarea listei (art. 28 alin. (3)).')));
+        h('li', {}, h('strong', {}, 'prin această platformă'), ' — completezi formularul de mai jos și se trimite pe e-mail asociației;'),
+        h('li', {}, 'e-mail: ', h('a', { href: `mailto:${ASOCIATIA.email}` }, ASOCIATIA.email), ';'),
+        h('li', {}, 'e-bloc, secțiunea „Contact”;'),
+        h('li', {}, 'pe hârtie, în cutia poștală a asociației sau predată responsabilului cu corespondența.')),
+      h('p', { class: 'slab' }, 'Sesizările verbale, telefonice sau pe WhatsApp nu se înregistrează și nu primesc răspuns.'),
+      h('p', {}, `Fiecare sesizare primește un număr de înregistrare și apare pe pagina „Sesizări”, fără numele tău și fără numărul apartamentului. Răspunsul scris se dă în cel mult ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
+      h('p', { class: 'slab' }, 'O sesizare fără propunere de soluție primește răspuns în termen, dar se discută la ședința lunară a comitetului (art. 23). Contestațiile la lista de plată se depun în 10 zile de la afișarea listei (art. 28 alin. (3)).')),
+    form,
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    previzualizare,
+    h('p', { class: 'doar-tipar' }, 'Semnătura: ______________________'));
 }
 
 async function verificareSemnatura(x, an) {

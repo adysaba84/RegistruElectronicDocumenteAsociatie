@@ -28,7 +28,7 @@ export const STARI = {
 export const STARI_FINALE = ['raspuns_trimis', 'inchisa'];
 
 export const TIPURI_DOC = { intrare: 'Intrare', iesire: 'Ieșire', intern: 'Intern' };
-export const CANALE = { aplicatie: 'Aplicație', email: 'E-mail', ebloc: 'e-bloc', hartie: 'Hârtie' };
+export const CANALE = { aplicatie: 'Aplicație', platforma: 'Platformă (formular)', email: 'E-mail', ebloc: 'e-bloc', hartie: 'Hârtie' };
 export const OCUPARE = { da: 'Da, mă ocup eu', nu: 'Nu', ajut: 'Pot ajuta' };
 
 export const MAX_FISIER = 25 * 1024 * 1024;
