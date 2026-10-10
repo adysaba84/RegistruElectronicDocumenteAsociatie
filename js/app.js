@@ -1,19 +1,19 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=16';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=16';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=17';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=17';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
-} from './store.js?v=16';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=16';
+} from './store.js?v=17';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=17';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=16';
+} from './sedinte.js?v=17';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=16';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza } from './comenzi-voce.js?v=16';
-import { pvInText, textInPV } from './pv-text.js?v=16';
-import { Dictare, dictareSuportata } from './dictare.js?v=16';
+} from './config.js?v=17';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=17';
+import { pvInText, textInPV } from './pv-text.js?v=17';
+import { Dictare, dictareSuportata } from './dictare.js?v=17';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -1568,7 +1568,11 @@ function editorPV({ ta, prezenti, dataSedinta, roluri }) {
 
   const aplica = (enunt) => {
     if (!previz.hidden) vedere(false);
-    const comenzi = parseaza(enunt);
+    // „vot / responsabil / termen” din mijlocul unei fraze contează ca și comandă doar dacă se înțeleg.
+    const valid = (c) => (c.tip === 'vot' ? Boolean(parseazaVot(c.restN, prezenti || 1))
+      : c.tip === 'termen' ? Boolean(parseazaTermen(c.restN, dataSedinta))
+        : c.tip === 'responsabil' ? Boolean(potrivesteRol(c.restN, roluri)) : true);
+    const comenzi = parseaza(enunt, valid);
     if (!comenzi.length) return;
     if (comenzi.some((c) => c.tip === 'sterge ultima')) { anuleaza(); return; }
     salveazaStare();
@@ -1580,13 +1584,14 @@ function editorPV({ ta, prezenti, dataSedinta, roluri }) {
         case 'text': {
           const p = ta.selectionStart;
           const randCurent = ta.value.slice(ta.value.lastIndexOf('\n', p - 1) + 1, p);
+          // După un rând completat de vot / responsabil / termen, textul liber trece pe rând nou.
           const dupaCamp = /^(Vot|Responsabil|Termen):\s*\S/i.test(randCurent);
-          const lipit = p === 0 || /[\n ]/.test(ta.value[p - 1]);
-          insereaza(p, (dupaCamp ? '\n' : lipit ? '' : ' ') + fraza(c.rest));
+          insereaza(p, dupaCamp ? `\n${textLiber(c.rest, '')}` : textLiber(c.rest, ta.value.slice(0, p)));
           facute.push('Scris la cursor');
           break;
         }
         case 'consemneaza': {
+          c.rest = c.rest.replace(/^(faptul\s+)?c[aă]\s+/i, ''); // „consemnăm că …”
           const p = sfarsitDiscutii(x);
           insereaza(p, c.rest ? peRand(p, fraza(c.rest)) : '\n');
           facute.push(c.rest ? `Consemnat la discuțiile punctului ${x.nr}` : `Scrii la discuțiile punctului ${x.nr}, deasupra deciziilor`);
@@ -1701,11 +1706,23 @@ function editorPV({ ta, prezenti, dataSedinta, roluri }) {
   // ---- butoane ----
   const butonCamp = (text, fn) => h('button', { type: 'button', class: 'pv-unealta', onclick: () => { if (!previz.hidden) vedere(false); fn(); } }, ic('plus'), text);
   const cuSectiune = (fn) => () => { const { x } = sectiuneaLa(ta.selectionStart); if (!x) { aviz('err', 'Adaugă întâi un punct.'); return; } salveazaStare(); const e = fn(x); if (e) { istoric.pop(); undo.disabled = !istoric.length; aviz('err', e); } };
+  // Responsabilul se alege dintr-o listă și se pune la decizia pe care e cursorul (înlocuiește).
+  const alegeResponsabil = h('select', { class: 'pv-alege', 'aria-label': 'Alege responsabilul deciziei curente', onchange: (ev) => {
+    const id = ev.target.value;
+    ev.target.value = '';
+    if (!id) return;
+    if (!previz.hidden) vedere(false);
+    let ok = false;
+    cuSectiune((x) => { const e = puneCamp(x, 'Responsabil', `${numeRol(id)}.`); ok = !e; return e; })();
+    if (ok) aviz('ok', `Responsabil: ${numeRol(id)} (decizia ${decizieCurenta(sectiuneaLa(ta.selectionStart).x).k + 1})`);
+  } },
+  h('option', { value: '' }, '+ Responsabil…'),
+  roluri.filter((r) => r.id !== 'cenzor').map((r) => h('option', { value: r.id }, r.nume)));
   const unelte = h('div', { class: 'pv-unelte' },
     mic,
     butonCamp('Decizie', () => aplica('decizie')),
     butonCamp('Vot', cuSectiune((x) => puneCamp(x, 'Vot', '_ pentru, _ împotrivă, _ abțineri.'))),
-    butonCamp('Responsabil', cuSectiune((x) => puneCamp(x, 'Responsabil', ''))),
+    alegeResponsabil,
     butonCamp('Termen', cuSectiune((x) => puneCamp(x, 'Termen', ''))),
     undo,
     h('span', { class: 'umple' }),

@@ -19,11 +19,34 @@ const CUVINTE_GOALE = new Set(['resp', 'responsabil', 'si', 'de', 'cu', 'la', 'p
 export const norm = (s) => [...s].map((c) => c.normalize('NFD').replace(/[̀-ͯ]/g, '') || c).join('').toLowerCase();
 const curat = (s) => s.replace(/^[\s,:;.\-–]+|[\s,:;\-–]+$/g, '');
 
-// O frază: majusculă la început și punct la sfârșit.
+// Punctuația dictată: „virgulă”, „punct”, „două puncte”, „semnul întrebării”.
+const PUNCTUATIE = [
+  [/\s*(?<!\p{L})dou[aă] puncte(?!\p{L})\s*/giu, ': '],
+  [/\s*(?<!\p{L})semnul [îi]ntreb[aă]rii(?!\p{L})\s*/giu, '? '],
+  [/\s*(?<!\p{L})virgul[aă](?!\p{L})\s*/giu, ', '],
+  [/\s*(?<!\p{L})punct(?!\p{L})(?! de (?:vedere|lucru))\s*/giu, '. '],
+];
+export const punctuatie = (s) => PUNCTUATIE.reduce((t, [re, cu]) => t.replace(re, cu), s).replace(/\s+$/, '');
+const majusculeDupaPunct = (s) => s.replace(/([.!?]\s+)(\p{Ll})/gu, (_, a, b) => a + b.toUpperCase());
+
+// O frază întreagă (consemnare, decizie): punctuație dictată, majusculă la început și punct la sfârșit.
 export function fraza(s) {
-  s = curat(s).replace(/\.+$/, '');
+  s = curat(punctuatie(s)).replace(/\.+$/, '');
   if (!s) return '';
-  return `${s[0].toUpperCase()}${s.slice(1)}${/[!?]$/.test(s) ? '' : '.'}`;
+  return majusculeDupaPunct(`${s[0].toUpperCase()}${s.slice(1)}${/[!?:]$/.test(s) ? '' : '.'}`);
+}
+
+// Text liber dictat, care continuă textul de dinainte (`inainte`): fără punct pus automat,
+// cu majusculă doar la început de rând sau după . ! ? și cu spațiu doar unde trebuie.
+export function textLiber(s, inainte) {
+  let t = curat(punctuatie(s));
+  if (!t) return '';
+  const prev = inainte.replace(/[ \t]+$/, '');
+  const randCurent = prev.slice(prev.lastIndexOf('\n') + 1);
+  if (!prev || /[.!?\n]$/.test(prev) || /^(Decizie|Vot|Responsabil|Termen):$/i.test(randCurent)) t = t[0].toUpperCase() + t.slice(1);
+  t = majusculeDupaPunct(t);
+  const lipit = !inainte || /\s$/.test(inainte) || /^[,.:;!?]/.test(t);
+  return (lipit ? '' : ' ') + t;
 }
 
 export function numar(cuvant) {
@@ -33,19 +56,33 @@ export function numar(cuvant) {
 }
 
 const NR = '\\d+|unu|una|doi|doua|trei|patru|cinci|sase|sapte|opt|noua|zece';
-const RE_COMANDA = new RegExp(`\\b(consemneaza|noteaza|punct nou|punctul urmator|punctul (?:${NR})|decizia (?:${NR}|urmatoare|anterioara|precedenta)|decizie|hotararea|hotarare|vot|responsabil|termen|rand nou|sterge ultima|anuleaza)\\b`, 'g');
-const SINONIME = { noteaza: 'consemneaza', hotarare: 'decizie', hotararea: 'decizie', anuleaza: 'sterge ultima' };
+// Formele în care recunoașterea scrie comenzile: „consemnăm”, „consemnez”, „votul”, „termenul”, „decizia”…
+const RE_COMANDA = new RegExp(`\\b(consemn(?:eaza|ez|am|ati|are|at|a)|not(?:eaza|ez|am|ati)|punct nou|punctul urmator|punctul (?:${NR})|decizia (?:${NR}|urmatoare|anterioara|precedenta)|decizi[ae]|hotararea|hotarare|vot(?:ul)?|responsabil(?:ul|a)?|termen(?:ul)?|rand nou|sterge ultima|anuleaza)\\b`, 'g');
+function canonic(w) {
+  if (/^(consemn|not)/.test(w)) return 'consemneaza';
+  if (/^(decizi[ae]|hotarare)/.test(w) && !/^decizia (\d|unu|una|doi|doua|trei|patru|cinci|sase|sapte|opt|noua|zece|urm|ant|prec)/.test(w)) return 'decizie';
+  if (/^vot/.test(w)) return 'vot';
+  if (/^responsabil/.test(w)) return 'responsabil';
+  if (/^termen/.test(w)) return 'termen';
+  if (w === 'anuleaza') return 'sterge ultima';
+  return w;
+}
+// După aceste comenzi, în aceeași frază, mai pot urma doar acestea (ex. „decizie …, vot unanim, termen 30 octombrie”).
+const LEAGA_DUPA = new Set(['decizie', 'vot', 'responsabil', 'termen', 'decizia', 'punctul', 'punctul urmator']);
+const LEAGA = new Set(['vot', 'responsabil', 'termen', 'decizia', 'decizie']);
 
-export function parseaza(text) {
+// Împarte un enunț în comenzi. O comandă contează doar la începutul enunțului; după ea se leagă doar
+// vot / responsabil / termen / decizie, și doar dacă `valid(c)` le acceptă (un „termen” din mijlocul unei
+// fraze, ca „în termen de 10 zile”, rămâne text). Enunțul fără comandă la început e { tip: 'text' }.
+export function parseaza(text, valid = () => true) {
   const n = norm(text);
   const gasite = [...n.matchAll(RE_COMANDA)];
+  if (!gasite.length || curat(text.slice(0, gasite[0].index))) return curat(text) ? [{ tip: 'text', rest: curat(text), restN: norm(curat(text)) }] : [];
   const comenzi = [];
-  const inainte = curat(text.slice(0, gasite.length ? gasite[0].index : text.length));
-  if (inainte) comenzi.push({ tip: 'text', rest: inainte, restN: norm(inainte) });
   gasite.forEach((m, i) => {
     const sfarsit = i + 1 < gasite.length ? gasite[i + 1].index : text.length;
     const start = m.index + m[0].length;
-    const c = { tip: SINONIME[m[1]] || m[1], rest: curat(text.slice(start, sfarsit)), restN: curat(n.slice(start, sfarsit)) };
+    const c = { tip: canonic(m[1]), rest: curat(text.slice(start, sfarsit)), restN: curat(n.slice(start, sfarsit)), brut: text.slice(m.index, sfarsit) };
     if (c.tip.startsWith('punctul ') && c.tip !== 'punctul urmator') { c.nr = numar(c.tip.slice(8)); c.tip = 'punctul'; }
     if (c.tip.startsWith('decizia ')) {
       const w = c.tip.slice(8);
@@ -53,9 +90,15 @@ export function parseaza(text) {
       c.nr = numar(w);
       c.dir = w === 'urmatoare' ? 1 : -1;
     }
+    const prev = comenzi[comenzi.length - 1];
+    if (prev && !(LEAGA_DUPA.has(prev.tip) && LEAGA.has(c.tip) && valid(c))) {
+      prev.rest = curat(`${prev.rest} ${c.brut}`);
+      prev.restN = norm(prev.rest);
+      return;
+    }
     comenzi.push(c);
   });
-  return comenzi;
+  return comenzi.map(({ brut, ...c }) => c);
 }
 
 // „4 pentru 1 împotrivă 0 abțineri” / „unanim” → { pentru, impotriva, abtineri } sau null.

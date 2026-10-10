@@ -361,6 +361,7 @@ button.mic-btn:disabled::after { content: none; }
 .pv-unelte { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; padding: .6rem .7rem; border-bottom: 1px solid var(--border); }
 .pv-unelte .umple { flex: 1; }
 button.pv-unealta { min-height: 38px; padding: .3rem .65rem; font-size: .88rem; }
+select.pv-alege { min-height: 38px; padding: .3rem .55rem; font-size: .88rem; font-weight: 600; width: auto; max-width: 15rem; }
 .pv-mic { width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 50%; background: var(--accent); border-color: var(--accent); color: var(--accent-text); flex: none; }
 .pv-mic .ic { width: 24px; height: 24px; }
 .pv-mic.asculta { background: var(--danger); border-color: var(--danger); color: #fff; animation: puls 1.1s infinite; }
