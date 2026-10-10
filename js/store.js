@@ -7,7 +7,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=12';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=13';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -76,6 +76,12 @@ export async function amprenta(text) {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Conținutul semnat cu passkey pentru un răspuns. Numărul de ieșire nu intră (se stabilește
+// abia la salvare), dar sesizarea, textul, semnatarul și momentul semnării da.
+export function continutRaspuns(s, an, text, semnatDe, semnatLa) {
+  return JSON.stringify(['raspuns', `${s.nr}/${an}`, text, semnatDe, semnatLa]);
+}
+
 export const codVerificare = (hash) => (hash || '').slice(0, 16).toUpperCase().match(/.{1,4}/g)?.join('-') || '';
 
 // Lanț de amprente în registru: amprenta fiecărei înregistrări include amprenta celei
@@ -125,7 +131,7 @@ export function vederePublica(reg) {
       listaLunara: x.listaLunara,
       raspuns: x.raspuns ? {
         nr: x.raspuns.nr, an: x.raspuns.an, data: x.raspuns.data, text: x.raspuns.text,
-        semnatDe: x.raspuns.semnatDe, semnatLa: x.raspuns.semnatLa, amprenta: x.raspuns.amprenta,
+        semnatDe: x.raspuns.semnatDe, semnatLa: x.raspuns.semnatLa, amprenta: x.raspuns.amprenta, webauthn: x.raspuns.webauthn,
       } : null,
       istoric: (x.istoric || []).filter((i) => !i.intern).map(({ la, u, actiune }) => ({ la, u: /^ap\d+$/.test(u) ? 'autor' : u, actiune })),
     })),
@@ -363,7 +369,8 @@ export class Registru {
 
   // Președintele semnează: răspunsul primește propriul număr de ieșire în registru,
   // conexat la sesizare. Ambele înregistrări se scriu în același commit.
-  async semneazaRaspuns(an, nr) {
+  // `semnare` = { webauthn, semnatLa, text } — semnătura passkey făcută în interfață înainte de salvare.
+  async semneazaRaspuns(an, nr, semnare) {
     const anCurent = new Date().getFullYear();
     return this.gh.transact(async (head) => {
       const regCurent = await this.citesteAn(anCurent, head);
@@ -371,6 +378,7 @@ export class Registru {
       const s = regS.inregistrari.find((i) => i.nr === nr);
       if (!s) throw new Error(`Nr. ${nr}/${an} nu există.`);
       if (s.stare !== 'raspuns_propus' || !s.raspunsDraft) throw new Error('Nu există un răspuns de semnat.');
+      if (s.raspunsDraft.text !== semnare.text) throw new Error('Textul răspunsului s-a modificat între timp. Reîncarcă pagina și semnează din nou.');
       const data = azi();
       const r = {
         nr: nrUrmator(regCurent),
@@ -387,9 +395,11 @@ export class Registru {
         creatLa: acum(),
       };
       regCurent.inregistrari.push(r);
-      s.raspuns = { nr: r.nr, an: anCurent, data, text: r.continut, redactatDe: r.redactatDe, semnatDe: this.cont.u, semnatLa: acum() };
-      s.raspuns.amprenta = await amprenta(continutSemnat(s, an, s.raspuns));
-      r.semnatura = s.raspuns.amprenta;
+      s.raspuns = {
+        nr: r.nr, an: anCurent, data, text: r.continut, redactatDe: r.redactatDe,
+        semnatDe: this.cont.u, semnatLa: semnare.semnatLa, webauthn: semnare.webauthn,
+      };
+      r.webauthn = semnare.webauthn;
       r.amprenta = await amprentaInregistrare(r, ultimaAmprenta({ inregistrari: regCurent.inregistrari.filter((i) => i !== r) }));
       delete s.raspunsDraft;
       s.stare = 'raspuns_trimis';

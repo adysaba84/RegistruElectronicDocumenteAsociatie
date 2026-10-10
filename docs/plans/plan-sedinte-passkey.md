@@ -1,6 +1,6 @@
 # Plan — Committee meetings + passkey signing
 
-Status: **draft, awaiting approval**. Builds on plan-v1 (GitHub Pages + JSON in GitHub, design "Bloc").
+Status: **approved 2026-10-10**, in progress. Builds on plan-v1 (GitHub Pages + JSON in GitHub, design "Bloc").
 
 ## 0. Scope and phases
 1. **Passkeys (WebAuthn)** — register keys per account, sign with them, verify publicly. Replaces the
@@ -101,7 +101,15 @@ code that doesn't match the paper is evidence of tampering. Moving to a real bac
   `authenticatorData`/`clientDataJSON` (the mock server can't provide a real authenticator).
 - Real passkey ceremony verified on the live site (HTTPS) by the president on phone and PC.
 
-## 6. Open questions
-1. PV numbering: **per year** (restart at 1 each January, like the document register) or **continuous**?
-2. Who drafts the minutes: president only, or any committee member?
-3. Should "Am luat la cunoștință" also require a passkey, or is the account click enough as proof?
+## 6. Decisions (2026-10-10)
+1. PV numbering restarts every year: **1/2026, 2/2026, …**
+2. Minutes can be drafted/edited by **any committee member** (incl. the president).
+3. "Am luat la cunoștință" is **confirmed with a passkey** (signed over the convocation content; editing the
+   convocation invalidates earlier confirmations).
+
+## 7. Implementation notes
+- Meetings are stored in one file per year, `sedinte/<year>.json` (≈12 meetings/year, small), which also keeps the
+  PV counter atomic with the meeting it belongs to.
+- The whole signed PV is published to the avizier (roles only, no names) so anyone can verify the signatures;
+  required signers (present committee members + cenzor) are snapshotted into the PV and are part of the signed content.
+- "+ Document" moves from the nav to the Registru page to make room for "Ședințe" in the mobile tab bar.

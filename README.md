@@ -11,7 +11,7 @@ Rulează direct din GitHub, fără server și fără bază de date. Merge și de
 |---|---|---|
 | `RegistruElectronicDocumenteAsociatie` | public | codul aplicației (acest repo) |
 | `RegistruElectronicDocumenteAsociatie-date` | **privat** | registrul complet: nume, note interne, fișiere, alte documente |
-| `RegistruElectronicDocumenteAsociatie-public` | public | `sesizari/<an>.json` (fără date personale) și `conturi.json` |
+| `RegistruElectronicDocumenteAsociatie-public` | public | `sesizari/<an>.json`, `avizier/<an>.json` (fără date personale), `conturi.json`, `chei.json` (cheile publice passkey) |
 
 ## Cheia de acces
 
@@ -54,10 +54,24 @@ sesizările apartamentului lui.
 - Stări: Repartizată → În lucru → Răspuns de semnat → Răspuns trimis → Închisă.
 - Răspunsul semnat primește propriul număr de ieșire, conexat la sesizare.
 
+## Ședințe comitet executiv
+
+- **Membru comitet executiv:** bifă în Utilizatori pe conturile existente (președintele e membru de drept).
+- **Convocare** (președintele): dată, oră, ordinea de zi, link Zoom; avertizare sub 5 zile (art. 55). Membrii și cenzorul
+  confirmă **„Am luat la cunoștință”** cu passkey.
+- **Prezență:** „Sunt prezent” (de la o oră înainte de ședință); cvorum = jumătate + 1 din membri.
+- **Proces-verbal** (orice membru): nr. din registrul unic (1/2026, 2/2026…), participanți, cvorum, puncte, decizii cu vot,
+  responsabil și termen. Semnează cu passkey membrii prezenți și cenzorul; textul se blochează la prima semnătură, iar o
+  modificare ulterioară anulează semnăturile.
+- **Avizier** (public): procesele-verbale semnate de toți, cu verificarea semnăturilor; avertizare pentru termenul de 7 zile.
+
 ## Semnătură electronică și integritate
 
-- **Semnătură electronică simplă:** la semnare se calculează amprenta SHA-256 a răspunsului (text, numere, data, semnatar).
-  Pagina publică o verifică automat și afișează codul de verificare.
+- **Passkey (WebAuthn):** fiecare își adaugă din **Profil** unul sau mai multe passkey-uri (telefon, PC) și trece **codul
+  cheii** pe acordul semnat pe hârtie. Răspunsurile la sesizări, confirmările și procesele-verbale se semnează cu amprenta,
+  fața, PIN-ul sau Windows Hello; pagina publică verifică fiecare semnătură cu cheia publică din `chei.json`.
+  Semnăturile rămân verificabile și după o schimbare de domeniu (fiecare cheie își păstrează domeniul).
+- **Răspunsurile mai vechi** au o semnătură electronică simplă (amprentă SHA-256), verificată în continuare.
 - **Lanț de amprente:** fiecare înregistrare din registru conține amprenta celei anterioare; pagina Registru verifică lanțul.
 - **Istoric git:** fiecare salvare e un commit în repo-ul de date.
 
@@ -75,4 +89,5 @@ python dev/mock_github.py
 ```
 
 Apoi http://127.0.0.1:8787/?api=http://127.0.0.1:8787/api — un GitHub simulat în memorie (orice cheie merge).
-Parametrul `?api=` funcționează numai pe localhost.
+Parametrul `?api=` funcționează numai pe localhost. Pentru passkey-uri fără dispozitiv real, în consola paginii:
+`await import('/dev/autentificator-test.js')` (autentificator simulat, doar pentru teste).

@@ -1,12 +1,16 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=12';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=12';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=13';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=13';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
-  termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=12';
+  termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
+} from './store.js?v=13';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=13';
+import {
+  Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, cvorum, inceput, zileIntre,
+} from './sedinte.js?v=13';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=12';
+} from './config.js?v=13';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -19,6 +23,8 @@ const S = {
   cont: null,      // contul conectat
   token: null,
   reg: null,       // Registru (doar administrație)
+  sed: null,       // Sedinte (comitet)
+  chei: null,      // Chei (passkey-uri publice)
   an: new Date().getFullYear(),
   ani: [],
   filtre: { text: '', stare: '', domeniu: '', rapid: '' },
@@ -155,12 +161,13 @@ function cadru(activ, ...continut) {
       link('#/admin', 'home', 'Sesizări', 'admin'),
       poateInregistra() && link('#/admin/sesizare-noua', 'plus', 'Sesizare', 'sesizare-noua'),
       link('#/admin/registru', 'notebook', 'Registru', 'registru'),
-      poateInregistra() && link('#/admin/document-nou', 'file-text', 'Document', 'document-nou'),
+      participaLaSedinte() && link('#/admin/sedinte', 'calendar', 'Ședințe', 'sedinte'),
       ePresedinte() && link('#/admin/utilizatori', 'users', 'Utilizatori', 'utilizatori'),
       link('#/', 'list', 'Public', 'public'),
     ]
     : [
       link('#/', 'home', 'Sesizări', 'public'),
+      link('#/avizier', 'gavel', 'Avizier', 'avizier'),
       link('#/cum', 'pencil', 'Depune', 'cum'),
       link('#/admin', 'user', 'Conectare', 'login'),
     ];
@@ -172,7 +179,7 @@ function cadru(activ, ...continut) {
       h('nav', { id: 'meniu' }, nav),
       conectat() && h('div', { class: 'utilizator' },
         h('span', { class: 'nume' }, eticheta(S.cont.u)),
-        h('a', { href: '#/admin/parola', title: 'Schimbă parola', 'aria-label': 'Schimbă parola' }, ic('key')),
+        h('a', { href: '#/admin/profil', title: 'Profil și passkey', 'aria-label': 'Profil și passkey' }, ic('user')),
         h('button', { onclick: iesire, title: 'Ieșire', 'aria-label': 'Ieșire' }, ic('logout'))),
       h('div', { class: 'titlu-pagina' })),
     h('main', {},
@@ -203,7 +210,7 @@ function eroarePagina(activ, e) {
 
 function iesire() {
   stergeSesiune();
-  Object.assign(S, { cont: null, token: null, reg: null });
+  Object.assign(S, { cont: null, token: null, reg: null, sed: null });
   S.filtre = { text: '', stare: '', domeniu: '', rapid: '' };
   mergi('#/');
 }
@@ -421,6 +428,8 @@ function paginaCum() {
 }
 
 async function verificareSemnatura(x, an) {
+  const r = x.raspuns;
+  if (r?.webauthn) return blocSemnatura(r.webauthn, continutRaspuns(x, an, r.text, r.semnatDe, r.semnatLa));
   const el = h('p', { class: 'mic slab' }, 'Se verifică semnătura…');
   (async () => {
     if (!x.raspuns?.amprenta) { el.textContent = ''; return; }
@@ -438,7 +447,7 @@ async function blocRaspuns(x, an) {
   return h('div', { class: 'card raspuns' },
     h('h2', {}, `Răspuns nr. ${r.nr} din ${fmtData(r.data)}`),
     h('p', { class: 'text-lung' }, r.text),
-    h('p', { class: 'slab mic' }, `Semnat electronic de ${eticheta(r.semnatDe || 'presedinte')}${r.semnatLa ? `, ${fmtDataOra(r.semnatLa)}` : ''}.`),
+    !r.webauthn && h('p', { class: 'slab mic' }, `Semnat electronic de ${eticheta(r.semnatDe || 'presedinte')}${r.semnatLa ? `, ${fmtDataOra(r.semnatLa)}` : ''}.`),
     await verificareSemnatura(x, an),
     h('button', { class: 'nu-tipari', onclick: () => window.print() }, 'Tipărește / salvează PDF'));
 }
@@ -530,6 +539,7 @@ async function intra(cont, token) {
   const gh = new GitHubRepo({ apiBase: API, token, repo: REPO_DATE });
   const ghPublic = new GitHubRepo({ apiBase: API, token, repo: REPO_PUBLIC });
   S.reg = new Registru(gh, ghPublic, cont);
+  S.sed = new Sedinte(gh, ghPublic, cont);
   await Promise.all([ghPublic.info(), S.reg.init()]);
   S.ani = await S.reg.ani();
   S.reg.sincronizeazaPublic(new Date().getFullYear());
@@ -781,7 +791,12 @@ async function paginaAdminDetaliu(an, nr) {
     if (ePresedinte() && x.stare === 'raspuns_propus') {
       parti.push(h('p', { class: 'text-lung cutie' }, x.raspunsDraft.text),
         h('div', { class: 'actiuni' },
-          h('button', { class: 'principal', onclick: actiune(() => S.reg.semneazaRaspuns(an, nr), (r) => `Răspuns semnat electronic și înregistrat cu nr. ${r.raspuns.nr} din ${fmtData(r.raspuns.data)}.`) }, 'Semnează și înregistrează răspunsul'),
+          h('button', { class: 'principal', onclick: actiune(async () => {
+            const semnatLa = new Date().toISOString();
+            const text = x.raspunsDraft.text;
+            const sem = await semneazaCu(continutRaspuns(x, an, text, S.cont.u, semnatLa));
+            return S.reg.semneazaRaspuns(an, nr, { webauthn: sem, semnatLa, text });
+          }, (r) => `Răspuns semnat cu passkey și înregistrat cu nr. ${r.raspuns.nr} din ${fmtData(r.raspuns.data)}.`) }, ic('fingerprint'), 'Semnează și înregistrează răspunsul'),
           h('button', { onclick: (ev) => {
             const motiv = prompt('Ce trebuie refăcut în răspuns?');
             if (motiv && motiv.trim()) actiune(() => S.reg.respingeRaspuns(an, nr, motiv.trim()), 'Răspuns returnat responsabilului.')(ev);
@@ -902,6 +917,7 @@ async function paginaRegistru() {
     h('div', { class: 'bara' },
       h('h1', {}, 'Registru de intrare-ieșire ', selectAn(paginaRegistru)),
       h('div', { class: 'actiuni nu-tipari' },
+        poateInregistra() && h('a', { href: '#/admin/document-nou', class: 'buton principal' }, ic('plus'), 'Document'),
         h('button', { onclick: () => exportCsv(lista) }, 'Export Excel'),
         h('button', { onclick: () => window.print() }, 'Tipărește'))),
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, `Registru de intrare-ieșire — anul ${S.an}`)),
@@ -954,7 +970,7 @@ function paginaDocumentNou() {
 
 async function paginaUtilizatori() {
   seIncarca('utilizatori');
-  try { S.conturi = await Conturi.incarca(API, S.token); } catch (e) { return eroarePagina('utilizatori', e); }
+  try { [S.conturi] = await Promise.all([Conturi.incarca(API, S.token), incarcaChei(true)]); } catch (e) { return eroarePagina('utilizatori', e); }
   const bilet = h('div');
   const actiune = (fn) => async (ev) => {
     const el = ev.currentTarget;
@@ -995,9 +1011,16 @@ async function paginaUtilizatori() {
     const ap = h('select', { 'aria-label': `Apartament ${c.u}`, onchange: actiune(async () => {
       await S.conturi.seteazaApartament(S.token, c.u, ap.value ? Number(ap.value) : null);
     }) }, h('option', { value: '' }, '—'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1, selected: c.apartament === i + 1 }, `Ap. ${i + 1}`)));
+    const coduri = S.chei.ale(c.u).filter((k) => !k.revocataLa).map((k) => k.cod);
+    const poateComitet = !['cenzor', 'administrator'].includes(c.rol);
     return h('li', { class: 'rand-utilizator' },
-      h('div', {}, h('strong', {}, rol(c.rol)?.nume || c.rol), h('span', { class: 'slab cod' }, c.u)),
+      h('div', {}, h('strong', {}, rol(c.rol)?.nume || c.rol), h('span', { class: 'slab cod' }, c.u),
+        h('span', { class: 'slab mic' }, coduri.length ? `Passkey: ${coduri.join(', ')}` : 'fără passkey')),
       h('label', { class: 'inline' }, 'Apartament', ap),
+      poateComitet && h('label', { class: 'bifa' },
+        h('input', { type: 'checkbox', checked: c.rol === 'presedinte' || Boolean(c.comitet), disabled: c.rol === 'presedinte', onchange: (ev) => actiune(async () => {
+          await S.conturi.seteazaComitet(S.token, c.u, ev.target.checked);
+        })(ev) }), c.rol === 'presedinte' ? 'Comitet executiv (de drept)' : 'Membru comitet executiv'),
       h('span', { class: `eticheta ${c.temporara ? 'termen-aproape' : 'stare-raspuns_trimis'}` }, c.temporara ? 'parolă temporară' : 'parolă schimbată'),
       c.u !== S.cont.u && h('button', { onclick: actiune(async () => {
         if (!confirm(`Resetezi parola pentru ${c.u}? Parola veche nu va mai funcționa.`)) return;
@@ -1014,6 +1037,445 @@ async function paginaUtilizatori() {
     bileteApartamente);
 }
 
+// ---------- passkey: chei, semnare, verificare ----------
+
+async function incarcaChei(fortat = false) {
+  if (!S.chei || fortat) S.chei = await Chei.incarca(API, S.token, urlPublic());
+  return S.chei;
+}
+
+// Cere semnătura passkey a utilizatorului conectat pe textul canonic dat.
+async function semneazaCu(continut) {
+  await incarcaChei(true);
+  try {
+    return await semneaza({ u: S.cont.u, chei: S.chei.lista, continut });
+  } catch (e) {
+    if (e instanceof FaraCheie) {
+      if (confirm(`${e.message}\n\nMergi acum la Profil?`)) mergi('#/admin/profil');
+      throw new Error('Semnarea are nevoie de un passkey.');
+    }
+    if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') throw new Error('Semnarea a fost anulată.');
+    throw e;
+  }
+}
+
+// Card de verificare: ✓ / ✗ pentru o semnătură passkey.
+function blocSemnatura(sem, continut) {
+  const el = h('div', { class: 'semnatura' }, h('span', { class: 'slab mic' }, `Se verifică semnătura ${eticheta(sem.u)}…`));
+  (async () => {
+    await incarcaChei();
+    const r = await verifica(sem, continut, S.chei.lista);
+    el.className = `semnatura ${r.ok ? 'ok' : 'rau'}`;
+    el.replaceChildren(
+      ic(r.ok ? 'shield-check' : 'alert-triangle'),
+      h('div', {},
+        h('strong', {}, r.ok ? `Semnat de ${eticheta(sem.u)}` : `${eticheta(sem.u)}: ${r.motiv}`),
+        h('span', { class: 'mic' }, `${fmtDataOra(sem.la)} · cheia ${sem.cod || '—'}`)));
+  })();
+  return el;
+}
+
+// ---------- profil și passkey-uri ----------
+
+async function paginaProfil() {
+  seIncarca('profil');
+  try { await incarcaChei(true); } catch (e) { return eroarePagina('profil', e); }
+  const ale = S.chei.ale(S.cont.u).sort((a, b) => b.inregistrataLa.localeCompare(a.inregistrataLa));
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const form = h('form', { class: 'rand-actiune', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      const cheie = await creeazaCheie({ u: S.cont.u, eticheta: eticheta(S.cont.u), dispozitiv: form.dispozitiv.value.trim(), existente: ale });
+      await S.chei.adauga(API, S.token, cheie);
+      S.mesaj = `Passkey adăugat. Codul cheii: ${cheie.cod} — trece-l pe acordul semnat pe hârtie.`;
+      paginaProfil();
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = e?.name === 'NotAllowedError' ? 'Înregistrarea a fost anulată.' : (e?.name === 'InvalidStateError' ? 'Acest dispozitiv are deja un passkey pentru contul tău.' : mesajEroare(e));
+      eroare.hidden = false;
+    }
+  } },
+  h('input', { name: 'dispozitiv', required: true, maxlength: 60, placeholder: 'ex. Telefon Samsung, Laptop birou', 'aria-label': 'Numele dispozitivului' }),
+  h('button', { type: 'submit', class: 'principal', disabled: !suportat() }, ic('fingerprint'), 'Adaugă passkey'));
+
+  afiseaza('profil',
+    h('h1', {}, 'Profil'),
+    h('div', { class: 'card' },
+      h('dl', { class: 'detalii' },
+        h('dt', {}, 'Cont'), h('dd', {}, `${eticheta(S.cont.u)} (${S.cont.u})`),
+        eMembruComitet() && [h('dt', {}, 'Funcție'), h('dd', {}, 'Membru al comitetului executiv')]),
+      h('a', { href: '#/admin/parola', class: 'buton' }, ic('key'), 'Schimbă parola')),
+    h('div', { class: 'card' },
+      h('h2', {}, 'Semnătură electronică (passkey)'),
+      h('p', { class: 'slab' }, 'Cu un passkey semnezi documente cu amprenta, fața, PIN-ul telefonului sau Windows Hello. Poți adăuga câte unul pentru fiecare dispozitiv. Trece codul fiecărei chei pe acordul semnat pe hârtie: dacă o cheie ar fi înlocuită pe ascuns, codul nu s-ar mai potrivi.'),
+      !suportat() && h('p', { class: 'avertizare' }, 'Browserul acesta nu suportă passkey-uri. Folosește un browser actualizat (Chrome, Safari, Edge, Firefox).'),
+      ale.length
+        ? h('ul', { class: 'lista-chei' }, ale.map((c) => h('li', { class: c.revocataLa ? 'revocata' : null },
+          h('span', { class: 'placa' }, ic('fingerprint')),
+          h('div', {},
+            h('strong', {}, c.dispozitiv || 'Dispozitiv'),
+            h('span', { class: 'cod mare' }, c.cod),
+            h('span', { class: 'slab mic' }, `adăugat ${fmtDataOra(c.inregistrataLa)}${c.rpId !== location.hostname ? ` · pe ${c.rpId}` : ''}${c.revocataLa ? ` · revocat ${fmtDataOra(c.revocataLa)}` : ''}`)),
+          !c.revocataLa && h('button', { onclick: async (ev) => {
+            if (!confirm(`Revoci passkey-ul „${c.dispozitiv}”? Semnăturile făcute deja cu el rămân valabile.`)) return;
+            ev.currentTarget.disabled = true;
+            try { await S.chei.revoca(API, S.token, c.id, S.cont.u); S.mesaj = 'Passkey revocat.'; paginaProfil(); } catch (e) { alert(mesajEroare(e)); }
+          } }, 'Revocă'))))
+        : h('p', { class: 'slab' }, 'Nu ai încă niciun passkey.'),
+      eroare,
+      form));
+}
+
+// ---------- ședințe ----------
+
+const membriComitet = () => S.conturi?.membriComitet() || [];
+const eMembruComitet = () => membriComitet().some((c) => c.u === S.cont?.u);
+const conturiCenzor = () => (S.conturi?.utilizatori || []).filter((c) => c.rol === 'cenzor');
+const participaLaSedinte = () => eMembruComitet() || S.cont?.rol === 'cenzor';
+const participanti = () => [...membriComitet(), ...conturiCenzor()];
+
+async function hashB64u(text) {
+  return b64u(await hashText(text));
+}
+
+function insignaSedinta(s) {
+  const st = stareSedinta(s);
+  const cls = { convocata: 'stare-repartizata', pv_redactat: 'stare-in_lucru', in_semnare: 'stare-raspuns_propus', semnata: 'stare-raspuns_trimis' }[st];
+  return h('span', { class: `eticheta ${cls}` }, STARI_SEDINTA[st]);
+}
+
+function avertizariSedinta(s) {
+  const out = [];
+  const convocare = zileIntre(inceput(s), new Date(s.convocataLa));
+  if (convocare < ZILE_CONVOCARE) {
+    out.push(h('p', { class: 'avertizare' }, ic('alert-triangle'), ` Convocată cu ${Math.max(0, Math.floor(convocare))} zile înainte — legea cere cel puțin ${ZILE_CONVOCARE} zile (art. 55 din Legea nr. 196/2018).`));
+  }
+  if (stareSedinta(s) !== 'semnata' && new Date() > inceput(s)) {
+    const limita = new Date(inceput(s).getTime() + ZILE_AFISARE * 86400000);
+    const ramase = Math.ceil(zileIntre(limita, new Date()));
+    out.push(h('p', { class: ramase < 0 ? 'eroare' : 'avertizare' }, ic('clock'),
+      ramase < 0
+        ? ` Termenul de afișare a deciziilor (${ZILE_AFISARE} zile, art. 55) a expirat pe ${fmtData(limita.toISOString())}.`
+        : ` Deciziile trebuie afișate până pe ${fmtData(limita.toISOString())} (${ZILE_AFISARE} zile, art. 55) — mai sunt ${ramase} zile.`));
+  }
+  return out;
+}
+
+async function paginaSedinte() {
+  seIncarca('sedinte');
+  let reg;
+  try { reg = await S.sed.citesteAn(S.an); } catch (e) { return eroarePagina('sedinte', e); }
+  const lista = [...reg.sedinte].sort((a, b) => b.nr - a.nr);
+  afiseaza('sedinte',
+    h('div', { class: 'bara' },
+      h('h1', {}, 'Ședințe comitet ', selectAn(paginaSedinte)),
+      ePresedinte() && h('a', { href: '#/admin/sedinte/noua', class: 'buton principal' }, ic('plus'), 'Convoacă ședință')),
+    h('p', { class: 'slab' }, `Comitetul executiv: ${membriComitet().map((c) => eticheta(c.u)).join(', ') || '—'}. Cvorum: ${cvorum(membriComitet().length, 0).necesar} membri.`),
+    lista.length
+      ? h('ul', { class: 'lista-sesizari' }, lista.map((s) => h('li', {},
+        h('a', { href: `#/admin/sedinte/${S.an}/${s.nr}`, class: 'rand-sesizare' },
+          h('span', { class: `placa ${stareSedinta(s) === 'semnata' ? 'inchisa' : stareSedinta(s) === 'convocata' ? '' : 'in_lucru'}` }, ic('calendar')),
+          h('div', { class: 'rand-cap' },
+            h('span', { class: 'nr' }, `Ședința ${s.nr}/${S.an}`),
+            h('span', {}, `${fmtData(s.data)} · ${s.ora}`),
+            h('span', { class: 'dreapta' }, insignaSedinta(s))),
+          h('div', { class: 'rand-problema' }, s.ordineZi.join(' · ')),
+          h('div', { class: 'rand-meta slab' }, s.pv ? `Proces-verbal nr. ${s.pv.nr}/${S.an}` : `${s.confirmari.length} confirmări · ${s.prezenta.length} prezenți`)))))
+      : h('p', { class: 'gol' }, `Nicio ședință în ${S.an}.`));
+}
+
+function formularConvocare(s, an) {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const avert = h('p', { class: 'avertizare', hidden: true });
+  const verificaTermen = () => {
+    if (!form.data.value || !form.ora.value) { avert.hidden = true; return; }
+    const zile = zileIntre(new Date(`${form.data.value}T${form.ora.value}:00`), new Date());
+    avert.hidden = zile >= ZILE_CONVOCARE;
+    avert.textContent = `Atenție: până la ședință sunt mai puțin de ${ZILE_CONVOCARE} zile. Legea cere convocarea cu cel puțin ${ZILE_CONVOCARE} zile înainte (art. 55 din Legea nr. 196/2018).`;
+  };
+  const form = h('form', { class: 'card formular', oninput: verificaTermen, onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const c = { data: form.data.value, ora: form.ora.value, zoom: form.zoom.value, ordineZi: form.ordineZi.value.split('\n') };
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const r = s ? await S.sed.editeazaConvocare(an, s.nr, c) : await S.sed.convoaca(c);
+      S.mesaj = s ? 'Convocarea a fost modificată. Membrii trebuie să confirme din nou.' : `Ședința ${r.s.nr}/${r.an} a fost convocată.`;
+      S.an = r.an;
+      mergi(`#/admin/sedinte/${r.an}/${r.s.nr}`);
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('div', { class: 'grila' },
+    h('label', {}, 'Data *', h('input', { type: 'date', name: 'data', required: true, value: s?.data || '' })),
+    h('label', {}, 'Ora *', h('input', { type: 'time', name: 'ora', required: true, value: s?.ora || '19:00' })),
+    h('label', { class: 'lat' }, 'Ordinea de zi * (câte un punct pe rând)', h('textarea', { name: 'ordineZi', rows: 5, required: true }, (s?.ordineZi || []).join('\n'))),
+    h('label', { class: 'lat' }, 'Link Zoom', h('input', { name: 'zoom', value: s?.zoom || '', placeholder: 'https://zoom.us/j/…' }))),
+  avert,
+  s?.confirmari.length ? h('p', { class: 'avertizare' }, `Modificarea anulează cele ${s.confirmari.length} confirmări „Am luat la cunoștință”.`) : null,
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, s ? 'Salvează convocarea' : 'Convoacă ședința'),
+    h('a', { href: s ? `#/admin/sedinte/${an}/${s.nr}` : '#/admin/sedinte', class: 'buton' }, 'Renunță')));
+  afiseaza('sedinte', h('h1', {}, s ? `Modifică convocarea ${s.nr}/${an}` : 'Convoacă o ședință'), form);
+  verificaTermen();
+}
+
+// Procesul-verbal, afișat la fel în administrație și la avizier.
+function vederePV(s, an) {
+  const p = s.pv;
+  const c = p.cvorum;
+  return h('div', { class: 'card pv' },
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    h('h2', {}, `Proces-verbal nr. ${p.nr}/${an}`),
+    h('p', { class: 'slab' }, `Ședința comitetului executiv din ${fmtData(s.data)}, ora ${s.ora}.`),
+    h('dl', { class: 'detalii' },
+      h('dt', {}, 'Participanți'), h('dd', {}, p.participanti.map((u) => eticheta(u)).join(', ') || '—'),
+      h('dt', {}, 'Cvorum'), h('dd', {}, `${c.prezenti} din ${c.membri} membri prezenți (necesar ${c.necesar}) — ${c.intrunit ? 'cvorum întrunit' : 'cvorum neîntrunit'}`)),
+    h('ol', { class: 'puncte' }, p.puncte.map((pt) => h('li', {},
+      h('h3', {}, pt.titlu),
+      pt.discutii && h('p', { class: 'text-lung' }, pt.discutii),
+      (pt.decizii || []).map((d, i) => h('div', { class: 'decizie' },
+        h('strong', {}, `Decizia ${i + 1}: `), h('span', { class: 'text-lung' }, d.text),
+        h('div', { class: 'vot' },
+          h('span', { class: 'eticheta stare-raspuns_trimis' }, `pentru ${d.pentru}`),
+          h('span', { class: 'eticheta termen-aproape' }, `abțineri ${d.abtineri}`),
+          h('span', { class: 'eticheta' }, `împotrivă ${d.impotriva}`),
+          d.responsabil && h('span', { class: 'slab mic' }, `Responsabil: ${numeRol(d.responsabil)}`),
+          d.termen && h('span', { class: 'slab mic' }, `Termen: ${fmtData(d.termen)}`))))))),
+    p.observatii && h('p', { class: 'text-lung' }, h('strong', {}, 'Observații: '), p.observatii));
+}
+
+async function paginaSedinta(an, nr) {
+  seIncarca('sedinte');
+  let s;
+  try {
+    [s] = await Promise.all([S.sed.citesteAn(an).then((r) => r.sedinte.find((x) => x.nr === nr)), incarcaChei()]);
+  } catch (e) { return eroarePagina('sedinte', e); }
+  if (!s) return afiseaza('sedinte', h('p', { class: 'eroare' }, `Ședința ${nr}/${an} nu există.`));
+
+  const actiune = (fn, mesaj) => async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try { await fn(); S.mesaj = mesaj; paginaSedinta(an, nr); } catch (e) { btn.disabled = false; alert(mesajEroare(e)); }
+  };
+  const eu = S.cont.u;
+  const stare = stareSedinta(s);
+  const textConvocare = continutConvocare(s, an);
+  const confirmat = s.confirmari.find((c) => c.u === eu);
+  const prezent = s.prezenta.some((p) => p.u === eu);
+  const membri = membriComitet();
+  const prezentiMembri = membri.filter((m) => s.prezenta.some((p) => p.u === m.u));
+  const cv = cvorum(membri.length, prezentiMembri.length);
+  const poatePrezenta = participaLaSedinte() && !prezent && !s.semnaturi.length && Date.now() >= inceput(s).getTime() - 3600000;
+
+  const convocare = h('div', { class: 'card' },
+    h('h2', {}, ic('calendar'), ' Convocare'),
+    h('dl', { class: 'detalii' },
+      h('dt', {}, 'Data și ora'), h('dd', {}, `${fmtData(s.data)}, ora ${s.ora}`),
+      s.zoom && [h('dt', {}, 'Zoom'), h('dd', {}, /^https?:\/\//.test(s.zoom) ? h('a', { href: s.zoom, target: '_blank', rel: 'noopener' }, s.zoom) : s.zoom)],
+      h('dt', {}, 'Convocată de'), h('dd', {}, `${eticheta(s.convocataDe)} — ${fmtDataOra(s.convocataLa)}`),
+      h('dt', {}, 'Ordinea de zi'), h('dd', {}, h('ol', {}, s.ordineZi.map((p) => h('li', {}, p))))),
+    ePresedinte() && !s.pv && h('a', { href: `#/admin/sedinte/${an}/${nr}/convocare`, class: 'buton' }, ic('pencil'), 'Modifică convocarea'));
+
+  const luare = h('div', { class: 'card' },
+    h('h2', {}, ic('user-check'), ' Luare la cunoștință'),
+    h('div', { class: 'lista-semnaturi' }, participanti().map((c) => {
+      const sem = s.confirmari.find((x) => x.u === c.u);
+      return sem ? blocSemnatura(sem, textConvocare) : h('div', { class: 'semnatura asteapta' }, ic('clock'), h('div', {}, h('strong', {}, eticheta(c.u)), h('span', { class: 'mic' }, 'nu a confirmat încă')));
+    })),
+    participaLaSedinte() && !confirmat && h('button', { class: 'principal', onclick: actiune(async () => {
+      const sem = await semneazaCu(textConvocare);
+      await S.sed.confirma(an, nr, sem, (x) => hashB64u(continutConvocare(x, an)));
+    }, 'Ai confirmat că ai luat la cunoștință convocarea.') }, ic('fingerprint'), 'Am luat la cunoștință'));
+
+  const prezenta = h('div', { class: 'card' },
+    h('h2', {}, ic('users'), ' Prezență'),
+    h('p', {}, h('span', { class: `eticheta ${cv.intrunit ? 'stare-raspuns_trimis' : 'termen-aproape'}` },
+      cv.intrunit ? `Cvorum întrunit: ${cv.prezenti}/${cv.membri}` : `Cvorum neîntrunit: ${cv.prezenti}/${cv.membri} (necesar ${cv.necesar})`)),
+    h('ul', { class: 'lista-prezenta' }, participanti().map((c) => {
+      const p = s.prezenta.find((x) => x.u === c.u);
+      return h('li', { class: p ? 'da' : null }, ic(p ? 'check' : 'clock'), h('span', {}, eticheta(c.u)), h('span', { class: 'slab mic' }, p ? fmtDataOra(p.la) : 'absent'));
+    })),
+    poatePrezenta && h('button', { class: 'principal', onclick: actiune(() => S.sed.prezent(an, nr), 'Prezența a fost înregistrată.') }, ic('check'), 'Sunt prezent'),
+    participaLaSedinte() && !prezent && !poatePrezenta && !s.semnaturi.length && h('p', { class: 'slab mic' }, 'Butonul „Sunt prezent” apare cu o oră înainte de începerea ședinței.'));
+
+  const blocuri = [convocare, luare, prezenta];
+  if (s.pv) {
+    const textPV = continutPV(s, an);
+    const semnat = s.semnaturi.find((x) => x.u === eu);
+    blocuri.push(vederePV(s, an),
+      h('div', { class: 'card nu-tipari' },
+        h('h2', {}, ic('fingerprint'), ' Semnături'),
+        h('div', { class: 'lista-semnaturi' }, s.pv.semnatari.map((u) => {
+          const sem = s.semnaturi.find((x) => x.u === u);
+          return sem ? blocSemnatura(sem, textPV) : h('div', { class: 'semnatura asteapta' }, ic('clock'), h('div', {}, h('strong', {}, eticheta(u)), h('span', { class: 'mic' }, 'nesemnat')));
+        })),
+        s.pv.semnatari.includes(eu) && !semnat && h('button', { class: 'principal', onclick: actiune(async () => {
+          const sem = await semneazaCu(textPV);
+          await S.sed.semneazaPV(an, nr, sem, (x) => hashB64u(continutPV(x, an)));
+        }, 'Ai semnat procesul-verbal.') }, ic('fingerprint'), 'Semnează procesul-verbal'),
+        stare === 'semnata' && h('p', { class: 'succes' }, 'Semnat de toți. Deciziile sunt afișate la ', h('a', { href: `#/avizier/${an}/${nr}` }, 'avizier'), '.'),
+        eMembruComitet() && h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton' }, ic('pencil'),
+          s.semnaturi.length ? 'Modifică (anulează semnăturile)' : 'Modifică procesul-verbal')));
+  } else if (eMembruComitet()) {
+    blocuri.push(h('div', { class: 'card' },
+      h('h2', {}, ic('file-text'), ' Proces-verbal'),
+      h('p', { class: 'slab' }, 'După ședință, orice membru al comitetului redactează procesul-verbal. Primește automat numărul următor din registrul unic de procese-verbale.'),
+      h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton principal' }, ic('pencil'), 'Redactează procesul-verbal')));
+  }
+
+  afiseaza('sedinte',
+    h('a', { href: '#/admin/sedinte', class: 'inapoi nu-tipari' }, ic('arrow-left'), 'Ședințe'),
+    h('h1', {}, `Ședința ${nr}/${an}`),
+    h('p', { class: 'insigne' }, insignaSedinta(s), s.pv && h('span', { class: 'eticheta' }, `PV nr. ${s.pv.nr}/${an}`)),
+    avertizariSedinta(s),
+    blocuri,
+    blocIstoric(s));
+}
+
+function formularPV(s, an) {
+  const membri = membriComitet();
+  const prezentiMembri = membri.filter((m) => s.prezenta.some((p) => p.u === m.u)).map((m) => m.u);
+  const cenzori = conturiCenzor().map((c) => c.u);
+  const existent = s.pv;
+  const participantiPV = existent?.participanti || s.prezenta.map((p) => p.u);
+  const cv = existent?.cvorum || cvorum(membri.length, prezentiMembri.length);
+  const semnatari = existent?.semnatari || [...new Set([...prezentiMembri, ...cenzori])];
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+
+  const optiuniRol = (sel) => [h('option', { value: '' }, '—'), ...ROLURI.map((r) => h('option', { value: r.id, selected: r.id === sel }, numeRol(r.id)))];
+  const decizieNoua = (d = {}) => {
+    const el = h('div', { class: 'decizie editare' },
+      h('label', {}, 'Decizia', h('textarea', { 'data-k': 'text', rows: 2, required: true }, d.text || '')),
+      h('div', { class: 'grila-vot' },
+        h('label', {}, 'Pentru', h('input', { 'data-k': 'pentru', type: 'number', min: 0, value: d.pentru ?? '', required: true })),
+        h('label', {}, 'Împotrivă', h('input', { 'data-k': 'impotriva', type: 'number', min: 0, value: d.impotriva ?? 0, required: true })),
+        h('label', {}, 'Abțineri', h('input', { 'data-k': 'abtineri', type: 'number', min: 0, value: d.abtineri ?? 0, required: true }))),
+      h('div', { class: 'grila-vot' },
+        h('label', {}, 'Responsabil', h('select', { 'data-k': 'responsabil' }, optiuniRol(d.responsabil))),
+        h('label', {}, 'Termen', h('input', { 'data-k': 'termen', type: 'date', value: d.termen || '' }))),
+      h('button', { type: 'button', class: 'link', onclick: () => el.remove() }, 'Șterge decizia'));
+    return el;
+  };
+  const puncteSursa = existent?.puncte || s.ordineZi.map((titlu) => ({ titlu, discutii: '', decizii: [] }));
+  const puncte = puncteSursa.map((pt) => {
+    const lista = h('div', { class: 'decizii' }, (pt.decizii || []).map((d) => decizieNoua(d)));
+    return h('fieldset', { class: 'card punct', 'data-titlu': pt.titlu },
+      h('legend', {}, pt.titlu),
+      h('label', {}, 'Discuții (pe scurt)', h('textarea', { 'data-k': 'discutii', rows: 3 }, pt.discutii || '')),
+      lista,
+      h('button', { type: 'button', onclick: () => lista.append(decizieNoua()) }, ic('plus'), 'Adaugă decizie'));
+  });
+  const observatii = h('textarea', { rows: 2, 'aria-label': 'Observații' }, existent?.observatii || '');
+
+  const form = h('form', { class: 'formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    if (s.semnaturi.length && !confirm(`Procesul-verbal are ${s.semnaturi.length} semnături. Salvarea le anulează și toți trebuie să semneze din nou. Continui?`)) return;
+    const pv = {
+      participanti: participantiPV,
+      cvorum: cv,
+      semnatari,
+      puncte: puncte.map((f) => ({
+        titlu: f.dataset.titlu,
+        discutii: f.querySelector('[data-k=discutii]').value.trim(),
+        decizii: [...f.querySelectorAll('.decizie')].map((d) => {
+          const v = (k) => d.querySelector(`[data-k=${k}]`).value;
+          return { text: v('text').trim(), pentru: Number(v('pentru')), impotriva: Number(v('impotriva')), abtineri: Number(v('abtineri')), responsabil: v('responsabil'), termen: v('termen') };
+        }),
+      })),
+      observatii: observatii.value.trim(),
+    };
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      await S.sed.salveazaPV(an, s.nr, pv);
+      S.mesaj = 'Procesul-verbal a fost salvat. Semnatarii îl pot semna acum.';
+      mergi(`#/admin/sedinte/${an}/${s.nr}`);
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('div', { class: 'card' },
+    h('dl', { class: 'detalii' },
+      h('dt', {}, 'Participanți'), h('dd', {}, participantiPV.map((u) => eticheta(u)).join(', ') || '— (nimeni nu a marcat prezența)'),
+      h('dt', {}, 'Cvorum'), h('dd', {}, `${cv.prezenti} din ${cv.membri} membri (necesar ${cv.necesar}) — ${cv.intrunit ? 'întrunit' : 'neîntrunit'}`),
+      h('dt', {}, 'Semnează'), h('dd', {}, semnatari.map((u) => eticheta(u)).join(', '))),
+    h('p', { class: 'slab mic' }, 'Participanții și cvorumul se iau din butoanele „Sunt prezent”. Semnează membrii prezenți și cenzorul.')),
+  puncte,
+  h('div', { class: 'card' }, h('label', {}, 'Observații', observatii)),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, 'Salvează procesul-verbal'),
+    h('a', { href: `#/admin/sedinte/${an}/${s.nr}`, class: 'buton' }, 'Renunță')));
+  afiseaza('sedinte', h('h1', {}, existent ? `Proces-verbal nr. ${existent.nr}/${an}` : `Proces-verbal — ședința ${s.nr}/${an}`), form);
+}
+
+async function deschideFormular(an, nr, fn) {
+  seIncarca('sedinte');
+  try {
+    const s = (await S.sed.citesteAn(an)).sedinte.find((x) => x.nr === nr);
+    if (!s) throw new Error(`Ședința ${nr}/${an} nu există.`);
+    fn(s, an);
+  } catch (e) { eroarePagina('sedinte', e); }
+}
+
+// ---------- avizier (public) ----------
+
+async function citesteAvizier(an) {
+  try {
+    const d = await new GitHubRepo({ apiBase: API, token: S.token, repo: REPO_PUBLIC }).readJson(`avizier/${an}.json`);
+    return d || { an, sedinte: [] };
+  } catch { /* cădem pe Pages */ }
+  const res = await fetch(`${urlPublic()}avizier/${an}.json?t=${Date.now()}`, { cache: 'no-store' });
+  return res.ok ? res.json() : { an, sedinte: [] };
+}
+
+async function paginaAvizier() {
+  seIncarca('avizier');
+  let d;
+  try { [d] = await Promise.all([citesteAvizier(S.an), incarcaConturiPublic()]); } catch (e) { return eroarePagina('avizier', e); }
+  const lista = [...d.sedinte].sort((a, b) => b.pv.nr - a.pv.nr);
+  afiseaza('avizier',
+    h('h1', {}, 'Avizier ', selectAn(paginaAvizier)),
+    h('p', { class: 'slab' }, 'Deciziile comitetului executiv, din procesele-verbale semnate electronic de membrii prezenți și de cenzor.'),
+    lista.length
+      ? h('ul', { class: 'lista-sesizari' }, lista.map((s) => h('li', {},
+        h('a', { href: `#/avizier/${S.an}/${s.nr}`, class: 'rand-sesizare' },
+          h('span', { class: 'placa inchisa' }, ic('gavel')),
+          h('div', { class: 'rand-cap' }, h('span', { class: 'nr' }, `Proces-verbal nr. ${s.pv.nr}/${S.an}`), h('span', {}, `ședința din ${fmtData(s.data)}`)),
+          h('div', { class: 'rand-problema' }, s.pv.puncte.flatMap((p) => (p.decizii || []).map((x) => x.text)).join(' · ') || s.ordineZi.join(' · ')),
+          h('div', { class: 'rand-meta slab' }, `${((n) => (n === 1 ? '1 decizie' : `${n} decizii`))(s.pv.puncte.reduce((n, p) => n + (p.decizii || []).length, 0))} · semnat ${fmtDataOra(s.semnataLa)}`)))))
+      : h('p', { class: 'gol' }, `Nicio decizie afișată în ${S.an}.`));
+}
+
+async function paginaAvizierDetaliu(an, nr) {
+  seIncarca('avizier');
+  let s;
+  try { [s] = await Promise.all([citesteAvizier(an).then((d) => d.sedinte.find((x) => x.nr === nr)), incarcaConturiPublic(), incarcaChei()]); } catch (e) { return eroarePagina('avizier', e); }
+  if (!s) return afiseaza('avizier', h('p', { class: 'eroare' }, 'Procesul-verbal nu a fost găsit.'));
+  const text = continutPV(s, an);
+  afiseaza('avizier',
+    h('a', { href: '#/avizier', class: 'inapoi nu-tipari' }, ic('arrow-left'), 'Avizier'),
+    h('h1', {}, `Proces-verbal nr. ${s.pv.nr}/${an}`),
+    vederePV(s, an),
+    h('div', { class: 'card' },
+      h('h2', {}, ic('shield-check'), ' Semnături electronice'),
+      h('div', { class: 'lista-semnaturi' }, s.semnaturi.map((sem) => blocSemnatura(sem, text))),
+      h('p', { class: 'slab mic' }, `Cod de verificare: ${codVerificare(await hashB64u(text).then((x) => [...unb64u(x)].map((b) => b.toString(16).padStart(2, '0')).join('')))}`),
+      h('button', { class: 'nu-tipari', onclick: () => window.print() }, 'Tipărește / salvează PDF')));
+}
+
 // ---------- rutare ----------
 
 async function ruta() {
@@ -1022,6 +1484,8 @@ async function ruta() {
 
   if (p[0] !== 'admin') {
     if (p[0] === 'cum') return paginaCum();
+    if (p[0] === 'avizier' && p[2]) return paginaAvizierDetaliu(Number(p[1]), Number(p[2]));
+    if (p[0] === 'avizier') return paginaAvizier();
     if (p[0] === 'p' && p[2]) return paginaPublicaDetaliu(Number(p[1]), Number(p[2]));
     return paginaPublica();
   }
@@ -1034,6 +1498,14 @@ async function ruta() {
     case 'registru': return eAdministratie() ? paginaRegistru() : paginaAdmin();
     case 'utilizatori': return ePresedinte() ? paginaUtilizatori() : paginaAdmin();
     case 'parola': return ecranParola(false);
+    case 'profil': return paginaProfil();
+    case 'sedinte':
+      if (!participaLaSedinte()) return paginaAdmin();
+      if (p[2] === 'noua') return ePresedinte() ? formularConvocare(null) : paginaSedinte();
+      if (p[4] === 'convocare') return deschideFormular(Number(p[2]), Number(p[3]), formularConvocare);
+      if (p[4] === 'pv') return deschideFormular(Number(p[2]), Number(p[3]), formularPV);
+      if (p[3]) return paginaSedinta(Number(p[2]), Number(p[3]));
+      return paginaSedinte();
     default: return paginaAdmin();
   }
 }

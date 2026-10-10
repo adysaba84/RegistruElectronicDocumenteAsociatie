@@ -101,6 +101,11 @@ code { font-size: .85em; }
 .ic-check { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/check.svg); }
 .ic-clock { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/clock.svg); }
 .ic-pencil { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/pencil.svg); }
+.ic-calendar { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/calendar.svg); }
+.ic-fingerprint { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/fingerprint.svg); }
+.ic-shield-check { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/shield-check.svg); }
+.ic-gavel { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/gavel.svg); }
+.ic-user-check { --u: url(https://cdn.jsdelivr.net/npm/@tabler/icons@3.19.0/icons/outline/user-check.svg); }
 
 /* ---------- antet verde ---------- */
 .antet {
@@ -293,6 +298,38 @@ ul.lista-utilizatori { list-style: none; padding: 0 1rem; }
   background: var(--card); border: 2px dashed var(--accent); font-size: .9rem; overflow-wrap: anywhere;
 }
 .bilet strong { color: var(--verde); }
+
+/* ---------- semnături passkey ---------- */
+.lista-semnaturi { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .85rem; }
+.semnatura { display: flex; align-items: center; gap: .7rem; padding: .65rem .8rem; border-radius: var(--radius); background: var(--bg); }
+.semnatura > .ic { font-size: 1.4rem; }
+.semnatura > div { display: flex; flex-direction: column; min-width: 0; }
+.semnatura.ok { background: var(--verde-bg); color: var(--verde-fg); }
+.semnatura.rau { background: var(--err-bg); color: var(--danger); }
+.semnatura.asteapta { color: var(--muted); }
+ul.lista-chei, ul.lista-prezenta { list-style: none; padding: 0; margin: 0 0 1rem; }
+ul.lista-chei li { display: flex; align-items: center; gap: .8rem; padding: .7rem 0; border-bottom: 1px solid var(--border); }
+ul.lista-chei li > div { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+ul.lista-chei li .placa { grid-row: auto; }
+ul.lista-chei li.revocata { opacity: .55; }
+.cod.mare { font-size: 1.05rem; font-weight: 700; letter-spacing: .04em; }
+ul.lista-prezenta li { display: flex; align-items: center; gap: .6rem; padding: .45rem 0; color: var(--muted); }
+ul.lista-prezenta li span:nth-child(2) { flex: 1; }
+ul.lista-prezenta li.da { color: var(--text); }
+ul.lista-prezenta li.da .ic { color: var(--accent); }
+.card h2 .ic { color: var(--accent); }
+
+/* ---------- proces-verbal ---------- */
+ol.puncte { padding-left: 1.2rem; margin: 1rem 0 0; }
+ol.puncte > li { margin-bottom: 1rem; }
+ol.puncte h3 { margin-bottom: .3rem; }
+.decizie { background: var(--bg); border-radius: var(--radius); padding: .7rem .85rem; margin: .5rem 0; }
+.decizie .vot { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: center; margin-top: .45rem; }
+.decizie.editare { display: flex; flex-direction: column; gap: .6rem; }
+.grila-vot { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .6rem; }
+fieldset.punct legend { font-size: 1.05rem; padding: 0 .2rem; }
+fieldset.punct { display: flex; flex-direction: column; gap: .7rem; }
+fieldset.punct > button { align-self: flex-start; }
 
 .doar-tipar { display: none; }
 

@@ -5,9 +5,9 @@
 // `cheie` = tokenul de acces la date, criptat cu parola utilizatorului. Parolele nu se
 // stochează nicăieri; fără parola corectă cheia nu se poate decripta.
 
-import { GitHubRepo } from './github.js?v=12';
-import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=12';
-import { REPO_PUBLIC, REPO_DATE, ROLURI } from './config.js?v=12';
+import { GitHubRepo } from './github.js?v=13';
+import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=13';
+import { REPO_PUBLIC, REPO_DATE, ROLURI } from './config.js?v=13';
 
 const FISIER = 'conturi.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -107,6 +107,16 @@ export class Conturi {
       return { files: [{ path: FISIER, text: json(date) }], result: date };
     }, () => `Card de acces: ${model.u}`);
     return parola;
+  }
+
+  // Funcție suplimentară „membru comitet executiv”; contul își păstrează rolul de bază.
+  seteazaComitet(token, u, membru) {
+    return this.modificaCont(token, u, (cont) => { cont.comitet = membru; }, `Comitet executiv: ${u} ${membru ? 'adăugat' : 'retras'}`);
+  }
+
+  // Președintele e membru de drept; ceilalți prin bifa „comitet”.
+  membriComitet() {
+    return this.utilizatori.filter((c) => c.rol === 'presedinte' || (c.comitet && !['cenzor', 'administrator', 'proprietar'].includes(c.rol)));
   }
 
   seteazaApartament(token, u, apartament) {
