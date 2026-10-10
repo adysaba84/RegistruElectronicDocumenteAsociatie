@@ -7,7 +7,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=8';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=9';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -139,7 +139,6 @@ export class Registru {
     this.cont = cont;         // { u, rol, apartament }
     this.cache = {};          // an -> { head, reg }: evită recitirea registrului nemodificat
     this.publicare = Promise.resolve();
-    this.eroarePublicare = null;
   }
 
   // Regenerează sesizari/<an>.json în repo-ul public din registrul privat.
@@ -151,16 +150,37 @@ export class Registru {
     }), () => `Sesizări ${an} actualizate (${this.cont.u})`);
   }
 
-  // Scrierea în registrul privat e sursa de adevăr; dacă publicarea eșuează,
-  // se reface la următoarea modificare (sau din butonul „Republică”).
-  // Publicarea rulează în fundal (nu blochează salvarea), câte una pe rând.
+  // Registrul privat e sursa de adevăr. Publicarea rulează automat în fundal (nu blochează salvarea), câte una pe rând,
+  // cu reîncercări; ce tot nu reușește se corectează la următoarea sincronizare.
   cuPublicare(rezultat) {
     this.retine(rezultat.an);
-    this.publicare = this.publicare
-      .then(() => this.publica(rezultat.an))
-      .then(() => { this.eroarePublicare = null; })
-      .catch((e) => { this.eroarePublicare = e; });
+    this.inCoada(() => this.publicaCuReincercari(rezultat.an));
     return rezultat;
+  }
+
+  inCoada(fn) {
+    this.publicare = this.publicare.then(fn).catch(() => {});
+    return this.publicare;
+  }
+
+  async publicaCuReincercari(an) {
+    for (const pauza of [0, 2000, 5000, 15000]) {
+      if (pauza) await new Promise((r) => setTimeout(r, pauza));
+      try {
+        await this.publica(an);
+        return;
+      } catch { /* reîncearcă */ }
+    }
+  }
+
+  // La conectare: dacă pagina publică diferă de registru (o publicare eșuată anterior), o reface.
+  sincronizeazaPublic(an) {
+    return this.inCoada(async () => {
+      const reg = await this.citesteAn(an);
+      const asteptat = JSON.stringify(vederePublica(reg).sesizari);
+      const existent = await this.ghPublic.readJson(`sesizari/${an}.json`);
+      if (JSON.stringify(existent?.sesizari || []) !== asteptat) await this.publicaCuReincercari(an);
+    });
   }
 
   // După un commit propriu, registrul tocmai scris devine cache-ul pentru noul head.
