@@ -1,12 +1,12 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=9';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=9';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=10';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=10';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=9';
+} from './store.js?v=10';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=9';
+} from './config.js?v=10';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -205,7 +205,14 @@ function iesire() {
 
 // ---------- partea publică ----------
 
+// Direct din repo prin API: imediat la zi (GitHub Pages se reconstruiește în 1–2 minute după
+// fiecare modificare). Vizitatorii neconectați au o limită de 60 de cereri/oră; peste ea
+// (sau la orice eroare) se citește copia de pe Pages.
 async function citestePublic(an) {
+  try {
+    const date = await new GitHubRepo({ apiBase: API, token: S.token, repo: REPO_PUBLIC }).readJson(`sesizari/${an}.json`);
+    return date || { an, sesizari: [] };
+  } catch { /* cădem pe Pages */ }
   const res = await fetch(`${urlPublic()}sesizari/${an}.json?t=${Date.now()}`, { cache: 'no-store' });
   if (res.status === 404) return { an, sesizari: [] };
   if (!res.ok) throw new Error(`Nu s-au putut încărca sesizările (${res.status}).`);
