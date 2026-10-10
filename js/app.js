@@ -1,12 +1,12 @@
-import { GitHubRepo, GitHubError } from './github.js';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js';
+import { GitHubRepo, GitHubError } from './github.js?v=5';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=5';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js';
+} from './store.js?v=5';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js';
+} from './config.js?v=5';
 
 const API = apiBase();
 const $app = document.getElementById('app');

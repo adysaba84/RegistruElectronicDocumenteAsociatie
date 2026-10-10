@@ -5,9 +5,9 @@
 // `cheie` = tokenul de acces la date, criptat cu parola utilizatorului. Parolele nu se
 // stochează nicăieri; fără parola corectă cheia nu se poate decripta.
 
-import { GitHubRepo } from './github.js';
-import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js';
-import { REPO_PUBLIC, REPO_DATE, ROLURI } from './config.js';
+import { GitHubRepo } from './github.js?v=5';
+import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=5';
+import { REPO_PUBLIC, REPO_DATE, ROLURI } from './config.js?v=5';
 
 const FISIER = 'conturi.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -98,12 +98,24 @@ export class Conturi {
   // temporare unice și scrie conturi.json. Întoarce lista de parole (afișată o singură dată).
   static async genereaza(apiBase, token, progres = () => {}) {
     const verifica = async (gh) => {
+      const nume = gh.repo.split('/')[1];
       try {
-        const info = await gh.info();
-        if (!info.permissions?.push) throw new Error(`Cheia nu are drept de scriere în ${gh.repo}.`);
+        await gh.info();
       } catch (e) {
         if (e.status === 401) throw new Error('GitHub nu recunoaște cheia (copiată incomplet sau expirată). Generează una nouă.');
-        if (e.status === 404) throw new Error(`Cheia nu are acces la repo-ul „${gh.repo.split('/')[1]}”. Pe GitHub, editează cheia → Repository access → adaugă-l, apoi încearcă din nou.`);
+        if (e.status === 404) throw new Error(`Cheia nu are acces la repo-ul „${nume}”. Pe GitHub, editează cheia → Repository access → adaugă-l, apoi încearcă din nou.`);
+        throw e;
+      }
+      // `permissions` din răspuns arată rolul contului, nu al cheii; testăm scrierea efectiv.
+      // Într-un repo gol Git Data API nu merge; prima scriere îl și inițializează.
+      try {
+        if ((await gh.head()) === null) {
+          await gh.initEmpty('README.md', '# Date registru electronic\n\nNu modificați manual — fișierele sunt scrise de aplicație.\n', 'Inițializare');
+        } else {
+          await gh.createBlob(new TextEncoder().encode('test acces'));
+        }
+      } catch (e) {
+        if (e.status === 403 || e.status === 404) throw new Error(`Cheia vede repo-ul „${nume}”, dar nu poate scrie în el. Pe GitHub, editează cheia → Permissions → Contents: Read and write → Update.`);
         throw e;
       }
     };
