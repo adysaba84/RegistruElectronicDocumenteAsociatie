@@ -97,11 +97,19 @@ export class Conturi {
   // Configurarea inițială: verifică tokenul, generează toate conturile cu parole
   // temporare unice și scrie conturi.json. Întoarce lista de parole (afișată o singură dată).
   static async genereaza(apiBase, token, progres = () => {}) {
-    const date = new GitHubRepo({ apiBase, token, repo: REPO_DATE });
-    const infoDate = await date.info();
-    if (!infoDate.permissions?.push) throw new Error('Tokenul nu are drept de scriere în repo-ul de date.');
+    const verifica = async (gh) => {
+      try {
+        const info = await gh.info();
+        if (!info.permissions?.push) throw new Error(`Cheia nu are drept de scriere în ${gh.repo}.`);
+      } catch (e) {
+        if (e.status === 401) throw new Error('GitHub nu recunoaște cheia (copiată incomplet sau expirată). Generează una nouă.');
+        if (e.status === 404) throw new Error(`Cheia nu are acces la repo-ul „${gh.repo.split('/')[1]}”. Pe GitHub, editează cheia → Repository access → adaugă-l, apoi încearcă din nou.`);
+        throw e;
+      }
+    };
+    await verifica(new GitHubRepo({ apiBase, token, repo: REPO_DATE }));
     const gh = Conturi.repo(apiBase, token);
-    await gh.info();
+    await verifica(gh);
     if (await gh.readJson(FISIER, await gh.head())) throw new Error('Aplicația este deja configurată.');
 
     const lista = contImplicite();
