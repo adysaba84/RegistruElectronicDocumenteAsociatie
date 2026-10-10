@@ -22,18 +22,16 @@ LOCK = threading.Lock()
 blobs = {}     # sha -> bytes
 trees = {}     # sha -> {path: blob_sha}
 commits = {}   # sha -> {"tree": sha, "parents": [...], "message": str}
-refs = {}      # "main" -> commit sha   (gol = repo gol)
+refs = {}      # "owner/repo" -> commit sha pe main   (lipsă = repo gol)
 
 
 def sha(data):
     return hashlib.sha1(data).hexdigest()
 
 
-def tree_of(ref):
-    if ref is None:
-        ref = refs.get("main")
-    if ref in refs:
-        ref = refs[ref]
+def tree_of(repo, ref):
+    if ref is None or ref == "main":
+        ref = refs.get(repo)
     if ref not in commits:
         return None
     return trees[commits[ref]["tree"]]
@@ -42,6 +40,10 @@ def tree_of(ref):
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s\n" % (fmt % args))
@@ -74,35 +76,43 @@ class Handler(SimpleHTTPRequestHandler):
         parts = [unquote(p) for p in u.path.split("/")[2:]]  # fără "", "api"
         q = parse_qs(u.query)
         token = (self.headers.get("Authorization") or "").replace("Bearer ", "")
-        if not token:
-            return self.reply(401, {"message": "Bad credentials"})
-        can_push = token != "citire"
         with LOCK:
+            if parts[:1] == ["raw"] and method == "GET":  # ca GitHub Pages
+                tree = tree_of("/".join(parts[1:3]), None)
+                path = "/".join(parts[3:])
+                if tree is None or path not in tree:
+                    return self.reply(404, {"message": "Not Found"})
+                return self.reply(200, raw=blobs[tree[path]])
+            public = len(parts) > 2 and parts[2].endswith("-public")
+            if not token and not (public and method == "GET"):
+                return self.reply(401, {"message": "Bad credentials"})
+            can_push = bool(token) and token != "citire"
             if parts == ["user"]:
                 return self.reply(200, {"login": "test", "name": "Test"})
             if len(parts) < 3 or parts[0] != "repos":
                 return self.reply(404, {"message": "Not Found"})
+            repo = parts[1] + "/" + parts[2]
             rest = parts[3:]
             if not rest:
                 return self.reply(200, {"default_branch": "main", "permissions": {"push": can_push}})
             if method != "GET" and not can_push:
                 return self.reply(403, {"message": "Resource not accessible by personal access token"})
             if rest[:3] == ["git", "ref", "heads"]:
-                if not refs:
+                if repo not in refs:
                     return self.reply(409, {"message": "Git Repository is empty."})
-                return self.reply(200, {"object": {"sha": refs[rest[3]]}})
+                return self.reply(200, {"object": {"sha": refs[repo]}})
             if rest[0] == "contents":
                 path = "/".join(rest[1:])
                 if method == "PUT":
-                    if refs:
+                    if repo in refs:
                         return self.reply(422, {"message": "sha required"})
                     data = base64.b64decode(self.body()["content"])
                     b = sha(data); blobs[b] = data
                     t = sha(json.dumps({path: b}).encode()); trees[t] = {path: b}
                     c = sha(t.encode() + b"init"); commits[c] = {"tree": t, "parents": [], "message": "init"}
-                    refs["main"] = c
+                    refs[repo] = c
                     return self.reply(201, {"commit": {"sha": c}})
-                tree = tree_of(q.get("ref", [None])[0])
+                tree = tree_of(repo, q.get("ref", [None])[0])
                 if tree is None:
                     return self.reply(404, {"message": "Not Found"})
                 if path in tree:
@@ -134,9 +144,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.reply(201, {"sha": c})
             if rest[:3] == ["git", "refs", "heads"] and method == "PATCH":
                 d = self.body()
-                if refs[rest[3]] not in commits[d["sha"]]["parents"]:
+                if refs[repo] not in commits[d["sha"]]["parents"]:
                     return self.reply(422, {"message": "Update is not a fast forward"})
-                refs[rest[3]] = d["sha"]
+                refs[repo] = d["sha"]
                 return self.reply(200, {"object": {"sha": d["sha"]}})
         return self.reply(404, {"message": "Not Found"})
 
@@ -155,6 +165,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.api("PATCH")
 
 
+def seed_repo(repo, path, data):
+    b = sha(data); blobs[b] = data
+    t = sha(json.dumps({path: b}).encode()); trees[t] = {path: b}
+    c = sha(t.encode() + repo.encode()); commits[c] = {"tree": t, "parents": [], "message": "seed"}
+    refs[repo] = c
+
+
 if __name__ == "__main__":
+    # repo-ul public există deja cu un README (ca pe GitHub); cel privat pornește gol
+    seed_repo("adysaba84/RegistruElectronicDocumenteAsociatie-public", "README.md", b"# public")
     print(f"http://localhost:{PORT}/?api=http://localhost:{PORT}/api", file=sys.stderr)
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

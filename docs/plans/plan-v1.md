@@ -51,3 +51,14 @@ Worker) that holds the key and checks the role per request; the UI and data form
 ## e-bloc
 No public API found. Integration is out of scope; e-bloc remains a channel for filing sesizări
 (staff register those manually, channel = e-bloc).
+
+## Decisions update (2026-10-10, same day)
+- Sesizări are **public** (no name, no apartment number, no internal notes/files) on the public page;
+  only the administration part needs login. Owner/apartment accounts are postponed.
+- Repos: `-date` (private, full register) and `-public` (public: `sesizari/<year>.json` mirror +
+  `conturi.json`, served by its own GitHub Pages). The `-conturi` repo idea was dropped.
+- Accounts: administration roles only; unique temporary password per account, printable slips.
+- Owner's name is typed in each sesizare (private side only).
+- Simple electronic signature (SHA-256 over the signed answer) + hash chain over registry entries;
+  no separate blockchain (git history is already a hash chain).
+- MVP stays GitHub-only; server-side enforcement deferred.

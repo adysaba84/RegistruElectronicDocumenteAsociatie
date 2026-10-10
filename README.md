@@ -1,71 +1,74 @@
-# Registru electronic de documente — Asociația de proprietari
+# Registru electronic — Asociația de Proprietari Observatorului 105
 
-Registru de intrare-ieșire pentru asociația de proprietari. Rulează direct din GitHub, fără server și fără bază de date.
+Registru de sesizări și documente, cu termene legale, răspunsuri semnate electronic și istoric.
+Rulează direct din GitHub, fără server și fără bază de date. Merge și de pe telefon.
 
-- **Site (public):** https://adysaba84.github.io/RegistruElectronicDocumenteAsociatie/
-- **Codul aplicației (public):** acest repo — doar HTML/CSS/JavaScript, fără date.
-- **Datele (privat):** repo-ul `adysaba84/RegistruElectronicDocumenteAsociatie-date` — fișiere JSON + scanuri.
+- **Site:** https://adysaba84.github.io/RegistruElectronicDocumenteAsociatie/
+- **Partea publică** (fără conectare): lista sesizărilor, starea, termenul și răspunsul — fără nume și fără apartament.
+- **Administrație** (`#/admin`, cu utilizator și parolă): înregistrare, repartizare, răspunsuri, semnare, registru, utilizatori.
 
-Cine deschide site-ul fără token vede doar ecranul de conectare. Datele nu sunt niciodată în acest repo public.
+| Repo | Vizibilitate | Conține |
+|---|---|---|
+| `RegistruElectronicDocumenteAsociatie` | public | codul aplicației (acest repo) |
+| `RegistruElectronicDocumenteAsociatie-date` | **privat** | registrul complet: nume, note interne, fișiere, alte documente |
+| `RegistruElectronicDocumenteAsociatie-public` | public | `sesizari/<an>.json` (fără date personale) și `conturi.json` |
 
-## Ce face
+## Cheia de acces
 
-- Înregistrare documente de **intrare / ieșire / interne**, cu număr și dată puse automat (numerotarea reîncepe în fiecare an).
-- Emitent, destinatar, nr./data documentului, conținut pe scurt, repartizare, termen, conexare, dosar, data expedierii, observații.
-- **Scanuri / PDF-uri atașate** (max. 25 MB fiecare).
-- Căutare și filtre; **export Excel (CSV)** și **tipărire** a registrului.
-- „Răspunde” creează automat documentul de ieșire legat de cel de intrare.
-- Înregistrările nu se șterg — se **anulează** cu motiv; numărul rămâne rezervat.
-- Fiecare salvare e un commit în repo-ul de date: istoric complet, cine și când a modificat.
-
-## Activare GitHub Pages (o singură dată)
-
-1. Deschide **Settings → Pages** al acestui repo:
-   https://github.com/adysaba84/RegistruElectronicDocumenteAsociatie/settings/pages
-2. **Build and deployment → Source:** `Deploy from a branch`.
-3. **Branch:** `main`, folder `/ (root)` → **Save**.
-4. După 1–2 minute site-ul e la adresa de mai sus. Orice modificare urcată pe `main` se publică automat.
-
-## Token
-
-Fiecare persoană din administrație are nevoie de un token (o cheie de acces doar la repo-ul de date).
-Tokenurile se fac din contul `adysaba84`, câte unul pentru fiecare persoană, ca să poată fi oprite separat.
+O singură dată, președintele creează o cheie de acces GitHub pe care aplicația o folosește pentru a scrie datele.
+Nimeni nu trebuie să o țină minte: la configurare, aplicația o criptează cu parola fiecărui cont.
 
 1. Deschide https://github.com/settings/personal-access-tokens/new
-2. **Token name:** de ex. `Registru - Maria (administrator)`.
-3. **Expiration:** de ex. 1 an (la expirare se face unul nou).
+2. **Token name:** `Registru electronic`.
+3. **Expiration:** cea mai lungă variantă disponibilă.
 4. **Resource owner:** `adysaba84`.
-5. **Repository access:** `Only select repositories` → alege `RegistruElectronicDocumenteAsociatie-date`.
-6. **Permissions → Repository permissions → Contents:**
-   - `Read and write` — pentru cine înregistrează documente;
-   - `Read-only` — pentru cine doar consultă (ex. cenzor).
-7. **Generate token**, copiază-l (GitHub îl arată o singură dată) și trimite-l persoanei pe un canal privat.
-8. Persoana deschide site-ul, își scrie numele și lipește tokenul.
+5. **Repository access:** `Only select repositories` → alege **`RegistruElectronicDocumenteAsociatie-date`** și **`RegistruElectronicDocumenteAsociatie-public`**.
+6. **Permissions → Repository permissions → Contents:** `Read and write`.
+7. **Generate token** și copiază-l.
+8. Deschide site-ul → **Administrație** → apare „Configurare inițială” → lipește cheia → **Creează conturile**.
+9. Tipărește biletele cu parolele temporare și dă-le titularilor. La prima conectare fiecare își alege parola.
 
-**Siguranță:**
-- Pe un calculator folosit și de alții, debifează „Ține-mă minte pe acest dispozitiv” și apasă **Ieșire** la final.
-- Dacă un telefon/laptop se pierde sau cineva pleacă din administrație: șterge tokenul lui din
-  https://github.com/settings/personal-access-tokens — accesul se oprește imediat.
+## Conturi
 
-## Structura datelor (repo-ul privat)
+`presedinte`, `resp01`…`resp13` (rolurile din Regulamentul intern, Cap. IV), `cenzor`, `administrator`.
+Fiecare rol se atribuie unui apartament, nu unei persoane (pagina **Utilizatori**). Președintele poate reseta orice parolă.
 
-```
-config.json                       denumire asociație, adresă, CIF, compartimente
-registru/2026.json                { "an": 2026, "inregistrari": [ ... ] }
-fisiere/2026/000012/scan.pdf      fișierele atașate înregistrării nr. 12/2026
-```
+| Cont | Poate |
+|---|---|
+| Președinte | tot: înregistrează, repartizează, semnează răspunsuri, închide, utilizatori |
+| Resp. 10 (corespondență) | înregistrează sesizări și documente |
+| Responsabil de domeniu | preia sesizările repartizate, redactează răspunsul, trimite la semnat |
+| Cenzor | doar citire |
+| Administrator | răspunde la sesizările despre lista de plată |
 
-Repo-ul de date se inițializează singur la prima conectare cu un token cu drept de scriere.
-Limite GitHub de reținut: max. ~1 GB recomandat pe repo — suficient pentru mulți ani de scanuri PDF obișnuite.
+## Sesizări
+
+- Câmpurile din formularul anexă al regulamentului (art. 21); numărul și data se dau automat.
+- Repartizare automată după domeniu; termen de **10 zile** (art. 57 alin. (1) lit. e) din Legea nr. 196/2018;
+  art. 28 alin. (3) pentru contestațiile la lista de plată). Avertizare cu 3 zile înainte și la depășire.
+- Fără soluție propusă → pe lista ședinței lunare a comitetului (art. 23).
+- Stări: Repartizată → În lucru → Răspuns de semnat → Răspuns trimis → Închisă.
+- Răspunsul semnat primește propriul număr de ieșire, conexat la sesizare.
+
+## Semnătură electronică și integritate
+
+- **Semnătură electronică simplă:** la semnare se calculează amprenta SHA-256 a răspunsului (text, numere, data, semnatar).
+  Pagina publică o verifică automat și afișează codul de verificare.
+- **Lanț de amprente:** fiecare înregistrare din registru conține amprenta celei anterioare; pagina Registru verifică lanțul.
+- **Istoric git:** fiecare salvare e un commit în repo-ul de date.
+
+## Limite cunoscute (MVP)
+
+- Regulile de acces sunt aplicate de aplicație, nu de un server: oricine are un cont al administrației deține,
+  după conectare, cheia de acces completă. Potrivit pentru o administrație de încredere; pentru conturi ale
+  apartamentelor e nevoie de o componentă pe server.
+- Dacă cheia de acces expiră sau e revocată, aplicația nu mai poate scrie: se creează o cheie nouă și se refac conturile.
 
 ## Dezvoltare locală
-
-Fără instalări: doar Python.
 
 ```bash
 python dev/mock_github.py
 ```
 
-Apoi deschide http://127.0.0.1:8787/?api=http://127.0.0.1:8787/api — un GitHub simulat în memorie
-(orice token merge; tokenul `citire` simulează acces doar de citire). Parametrul `?api=` funcționează
-numai pe localhost; pe site-ul publicat tokenul merge exclusiv la `api.github.com`.
+Apoi http://127.0.0.1:8787/?api=http://127.0.0.1:8787/api — un GitHub simulat în memorie (orice cheie merge).
+Parametrul `?api=` funcționează numai pe localhost.

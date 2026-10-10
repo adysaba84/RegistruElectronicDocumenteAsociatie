@@ -1,21 +1,30 @@
 import { GitHubRepo, GitHubError } from './github.js';
-import { Registru, TIPURI, STARI, MAX_FISIER, azi } from './store.js';
-import { REPO_DATE_IMPLICIT, apiBase } from './config.js';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js';
+import {
+  Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
+  termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
+} from './store.js';
+import {
+  ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
+} from './config.js';
 
+const API = apiBase();
 const $app = document.getElementById('app');
 const CHEIE_SESIUNE = 'registru.sesiune';
+const AN_START = 2026;
 
-const stare = {
-  reg: null,
-  info: null,
+const S = {
+  conturi: null,   // Conturi (încărcat la nevoie)
+  cont: null,      // contul conectat
+  token: null,
+  reg: null,       // Registru (doar administrație)
   an: new Date().getFullYear(),
   ani: [],
-  date: null,
-  filtre: { text: '', tip: '', stare: '', de: '', pana: '' },
+  filtre: { text: '', stare: '', domeniu: '', rapid: '' },
   mesaj: null,
 };
 
-// ---------- utilitare DOM (tot textul trece prin textContent, nu innerHTML) ----------
+// ---------- utilitare ----------
 
 function h(tag, attrs = {}, ...copii) {
   const el = document.createElement(tag);
@@ -27,41 +36,42 @@ function h(tag, attrs = {}, ...copii) {
     else el.setAttribute(k, v === true ? '' : v);
   }
   for (const c of copii.flat(Infinity)) {
-    if (c === null || c === undefined || c === false) continue;
+    if (c === null || c === undefined || c === false || c === '') continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
   return el;
 }
 
 const fmtData = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '');
-const fmtDataOra = (iso) => (iso ? new Date(iso).toLocaleString('ro-RO') : '');
+const fmtDataOra = (iso) => (iso ? new Date(iso).toLocaleString('ro-RO', { dateStyle: 'short', timeStyle: 'short' }) : '');
 const fmtMarime = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+const rol = (id) => ROLURI.find((r) => r.id === id);
+const domeniu = (id) => DOMENII.find((d) => d.id === id);
+const aniDisponibili = () => {
+  const ani = [];
+  for (let a = new Date().getFullYear(); a >= AN_START; a--) ani.push(a);
+  return ani;
+};
 
 function mesajEroare(e) {
   if (e instanceof GitHubError) {
-    if (e.status === 401) return 'Tokenul este invalid sau a expirat. Conectează-te din nou cu un token nou.';
-    if (e.status === 403) return `GitHub a refuzat operația (fără drept de scriere sau limită depășită): ${e.message}`;
-    if (e.status === 404) return 'Repo-ul de date nu a fost găsit sau tokenul nu are acces la el.';
+    if (e.status === 401) return 'Cheia de acces a expirat sau a fost revocată. Președintele trebuie să refacă configurarea.';
+    if (e.status === 403) return `GitHub a refuzat operația: ${e.message}`;
+    if (e.status === 404) return 'Datele nu au fost găsite sau cheia de acces nu are drept asupra lor.';
     return `Eroare GitHub (${e.status}): ${e.message}`;
   }
-  if (e instanceof TypeError) return 'Nu s-a putut contacta GitHub. Verifică conexiunea la internet.';
+  if (e instanceof TypeError) return 'Nu s-a putut contacta serverul. Verifică conexiunea la internet.';
   return e.message || String(e);
 }
 
 function citesteSesiune() {
-  try {
-    return JSON.parse(localStorage.getItem(CHEIE_SESIUNE) || sessionStorage.getItem(CHEIE_SESIUNE) || 'null');
-  } catch { return null; }
+  try { return JSON.parse(sessionStorage.getItem(CHEIE_SESIUNE) || 'null'); } catch { return null; }
 }
-
-function scrieSesiune(s, retine) {
-  try {
-    (retine ? localStorage : sessionStorage).setItem(CHEIE_SESIUNE, JSON.stringify(s));
-  } catch { /* stocare indisponibilă — sesiunea ține doar cât e pagina deschisă */ }
+function scrieSesiune(s) {
+  try { sessionStorage.setItem(CHEIE_SESIUNE, JSON.stringify(s)); } catch { /* sesiunea ține cât e pagina deschisă */ }
 }
-
 function stergeSesiune() {
-  try { localStorage.removeItem(CHEIE_SESIUNE); sessionStorage.removeItem(CHEIE_SESIUNE); } catch { /* */ }
+  try { sessionStorage.removeItem(CHEIE_SESIUNE); } catch { /* */ }
 }
 
 function descarcaBlob(blob, nume) {
@@ -77,446 +87,816 @@ function mergi(hash) {
   if (location.hash === hash) ruta(); else location.hash = hash;
 }
 
-// ---------- conectare ----------
-
-async function conecteaza(s) {
-  const gh = new GitHubRepo({ apiBase: apiBase(), token: s.token, repo: s.repo });
-  const reg = new Registru(gh, s.nume);
-  stare.info = await reg.init();
-  stare.reg = reg;
-  stare.ani = await reg.ani();
+// Eticheta unui cont fără nume de persoană: „Resp. instalații de apă (ap. 23)”.
+function numeRol(id) {
+  const r = rol(id);
+  if (!r) return id || '—';
+  const c = S.conturi?.utilizatori.find((x) => x.rol === id);
+  return c?.apartament ? `${r.nume} (ap. ${c.apartament})` : r.nume;
+}
+function eticheta(u) {
+  const c = S.conturi?.gaseste(u);
+  return c ? numeRol(c.rol) : (ROLURI.find((r) => r.u === u)?.nume || u);
 }
 
-function ecranConectare(eroare = '') {
-  const s = citesteSesiune() || {};
-  const form = h('form', { class: 'card conectare', onsubmit: async (ev) => {
-    ev.preventDefault();
-    const fd = new FormData(form);
-    const sesiune = {
-      repo: fd.get('repo').trim(),
-      token: fd.get('token').trim(),
-      nume: fd.get('nume').trim(),
-    };
-    const btn = form.querySelector('button');
-    btn.disabled = true;
-    btn.textContent = 'Se conectează…';
-    try {
-      await conecteaza(sesiune);
-      stergeSesiune();
-      scrieSesiune(sesiune, fd.get('retine') === 'on');
-      mergi('#/registru');
-    } catch (e) {
-      ecranConectare(mesajEroare(e));
-    }
-  } },
-  h('h1', {}, 'Registru electronic de documente'),
-  h('p', { class: 'slab' }, 'Asociația de proprietari — acces rezervat administrației.'),
-  eroare && h('p', { class: 'eroare', role: 'alert' }, eroare),
-  h('label', {}, 'Numele tău (apare în registru la fiecare înregistrare)',
-    h('input', { name: 'nume', required: true, autocomplete: 'name', value: s.nume || '' })),
-  h('label', {}, 'Token GitHub',
-    h('input', { name: 'token', type: 'password', required: true, autocomplete: 'off', placeholder: 'github_pat_…' })),
-  h('details', {},
-    h('summary', {}, 'Setări avansate'),
-    h('label', {}, 'Repo de date (privat)',
-      h('input', { name: 'repo', required: true, value: s.repo || REPO_DATE_IMPLICIT, pattern: '[\\w.-]+/[\\w.-]+' }))),
-  h('label', { class: 'bifa' }, h('input', { type: 'checkbox', name: 'retine', checked: true }), 'Ține-mă minte pe acest dispozitiv'),
-  h('button', { type: 'submit', class: 'principal' }, 'Conectare'),
-  h('p', { class: 'slab mic' }, 'Nu ai token? Vezi ',
-    h('a', { href: 'https://github.com/adysaba84/RegistruElectronicDocumenteAsociatie#token', target: '_blank', rel: 'noopener' }, 'instrucțiunile'), '.'));
-  $app.replaceChildren(h('main', { class: 'centrat' }, form));
-  form.querySelector(s.nume ? '[name=token]' : '[name=nume]').focus();
+const conectat = () => Boolean(S.cont);
+const ePresedinte = () => S.cont?.rol === 'presedinte';
+const poateInregistra = () => ['presedinte', 'r10'].includes(S.cont?.rol);
+const poateLucra = (x) => ePresedinte() || x.responsabil === S.cont?.rol;
+const poateNota = () => conectat() && S.cont.rol !== 'cenzor';
+
+function insignaStare(x) {
+  return h('span', { class: `eticheta stare-${x.stare}` }, STARI[x.stare]);
 }
 
-// ---------- cadru pagină ----------
+function insignaTermen(x) {
+  const t = termenInfo(x);
+  if (!t) return null;
+  if (t.nivel === 'depasit') return h('span', { class: 'eticheta termen-depasit' }, `Termen depășit cu ${-t.zile} ${-t.zile === 1 ? 'zi' : 'zile'}`);
+  if (t.nivel === 'aproape') return h('span', { class: 'eticheta termen-aproape' }, t.zile === 0 ? 'Termen: azi' : `Mai ${t.zile === 1 ? 'este 1 zi' : `sunt ${t.zile} zile`}`);
+  return null;
+}
+
+function alertaTermen(x) {
+  const t = termenInfo(x);
+  if (!t || t.nivel === 'ok') return null;
+  const temei = x.categorie === 'contestatie' ? 'art. 28 alin. (3) din Legea nr. 196/2018' : 'art. 57 alin. (1) lit. e) din Legea nr. 196/2018';
+  return h('p', { class: t.nivel === 'depasit' ? 'eroare' : 'avertizare', role: 'alert' },
+    t.nivel === 'depasit'
+      ? `Termenul legal de răspuns (${TERMEN_RASPUNS_ZILE} zile, ${temei}) a expirat pe ${fmtData(x.termen)}.`
+      : `Termenul legal de răspuns expiră pe ${fmtData(x.termen)} (${temei}).`);
+}
+
+// ---------- cadru ----------
 
 function cadru(activ, ...continut) {
-  const cfg = stare.reg.config;
   const link = (hash, text, id) => h('a', { href: hash, class: activ === id ? 'activ' : null }, text);
-  const doarCitire = !stare.info?.permissions?.push;
+  const nav = conectat()
+    ? [
+      link('#/admin', 'Sesizări', 'admin'),
+      poateInregistra() && link('#/admin/sesizare-noua', '+ Sesizare', 'sesizare-noua'),
+      link('#/admin/registru', 'Registru', 'registru'),
+      poateInregistra() && link('#/admin/document-nou', '+ Document', 'document-nou'),
+      ePresedinte() && link('#/admin/utilizatori', 'Utilizatori', 'utilizatori'),
+      link('#/', 'Pagina publică', 'public'),
+    ]
+    : [
+      link('#/', 'Sesizări', 'public'),
+      link('#/cum', 'Cum depun o sesizare', 'cum'),
+      link('#/admin', 'Administrație', 'login'),
+    ];
+  const meniu = h('nav', { id: 'meniu' }, nav);
   return [
     h('header', { class: 'antet' },
-      h('div', { class: 'titlu' },
-        h('strong', {}, cfg.asociatie.nume || 'Asociația de proprietari'),
-        h('span', { class: 'slab' }, 'Registru electronic de documente')),
-      h('nav', {},
-        link('#/registru', 'Registru', 'registru'),
-        !doarCitire && link('#/nou', '+ Înregistrare nouă', 'nou'),
-        link('#/setari', 'Setări', 'setari')),
-      h('div', { class: 'utilizator' },
-        h('span', {}, stare.reg.utilizator),
-        h('button', { class: 'link', onclick: () => { stergeSesiune(); stare.reg = null; ecranConectare(); } }, 'Ieșire'))),
+      h('a', { href: conectat() ? '#/admin' : '#/', class: 'titlu' },
+        h('strong', {}, ASOCIATIA.nume),
+        h('span', {}, conectat() ? 'Registru electronic — administrație' : 'Registru electronic de sesizări')),
+      h('button', { class: 'meniu-buton', 'aria-label': 'Meniu', 'aria-expanded': 'false', onclick: (ev) => {
+        const deschis = meniu.classList.toggle('deschis');
+        ev.currentTarget.setAttribute('aria-expanded', String(deschis));
+      } }, '☰'),
+      meniu,
+      conectat() && h('div', { class: 'utilizator' },
+        h('span', {}, eticheta(S.cont.u)),
+        h('a', { href: '#/admin/parola' }, 'Parola'),
+        h('button', { class: 'link', onclick: iesire }, 'Ieșire'))),
     h('main', {},
-      doarCitire && h('p', { class: 'avertizare' }, 'Tokenul tău are doar drept de citire — nu poți adăuga sau modifica înregistrări.'),
-      stare.mesaj && h('p', { class: 'succes', role: 'status' }, stare.mesaj),
+      S.mesaj && h('p', { class: 'succes', role: 'status' }, S.mesaj),
       continut),
+    h('footer', { class: 'subsol' }, `${ASOCIATIA.nume} · ${ASOCIATIA.adresa} · ${ASOCIATIA.email}`),
   ];
 }
 
 function afiseaza(activ, ...continut) {
   $app.replaceChildren(...cadru(activ, ...continut));
-  stare.mesaj = null;
+  S.mesaj = null;
   window.scrollTo(0, 0);
 }
 
 function seIncarca(activ) {
-  const mesaj = stare.mesaj; // păstrat pentru pagina care urmează după încărcare
+  const mesaj = S.mesaj;
   afiseaza(activ, h('p', { class: 'incarcare' }, 'Se încarcă…'));
-  stare.mesaj = mesaj;
+  S.mesaj = mesaj;
 }
 
 function eroarePagina(activ, e) {
-  afiseaza(activ, h('p', { class: 'eroare', role: 'alert' }, mesajEroare(e)),
-    h('button', { onclick: () => ruta() }, 'Reîncearcă'));
+  afiseaza(activ, h('p', { class: 'eroare', role: 'alert' }, mesajEroare(e)), h('button', { onclick: () => ruta() }, 'Reîncearcă'));
 }
 
-// ---------- registru (listă) ----------
-
-const COLOANE_CSV = [
-  ['Nr.', (x) => x.nr], ['Data', (x) => fmtData(x.data)], ['Tip', (x) => TIPURI[x.tip]],
-  ['Nr. doc. extern', (x) => x.nrDocExtern], ['Data doc. extern', (x) => fmtData(x.dataDocExtern)],
-  ['Emitent', (x) => x.emitent], ['Destinatar', (x) => x.destinatar], ['Conținut pe scurt', (x) => x.continut],
-  ['Repartizat', (x) => x.repartizat], ['Termen', (x) => fmtData(x.termen)], ['Conexat la nr.', (x) => x.conexat],
-  ['Dosar', (x) => x.dosar], ['Data expedierii', (x) => fmtData(x.dataExpedierii)], ['Stare', (x) => STARI[x.stare]],
-  ['Observații', (x) => [x.observatii, x.motivAnulare && `Motiv anulare: ${x.motivAnulare}`].filter(Boolean).join(' | ')],
-  ['Fișiere', (x) => (x.fisiere || []).map((f) => f.nume).join(', ')],
-];
-
-function exportCsv(lista) {
-  const cel = (v) => {
-    let s = v === undefined || v === null ? '' : String(v);
-    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // previne formule în Excel
-    return `"${s.replace(/"/g, '""')}"`;
-  };
-  const randuri = [COLOANE_CSV.map(([t]) => cel(t)).join(';')]
-    .concat(lista.map((x) => COLOANE_CSV.map(([, f]) => cel(f(x))).join(';')));
-  descarcaBlob(new Blob(['﻿' + randuri.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `registru-${stare.an}.csv`);
+function iesire() {
+  stergeSesiune();
+  Object.assign(S, { cont: null, token: null, reg: null });
+  S.filtre = { text: '', stare: '', domeniu: '', rapid: '' };
+  mergi('#/');
 }
 
-function filtreaza(lista) {
-  const f = stare.filtre;
-  const text = f.text.toLowerCase();
+// ---------- partea publică ----------
+
+async function citestePublic(an) {
+  const res = await fetch(`${urlPublic()}sesizari/${an}.json?t=${Date.now()}`, { cache: 'no-store' });
+  if (res.status === 404) return { an, sesizari: [] };
+  if (!res.ok) throw new Error(`Nu s-au putut încărca sesizările (${res.status}).`);
+  return res.json();
+}
+
+async function incarcaConturiPublic() {
+  if (S.conturi) return;
+  try {
+    const res = await fetch(`${urlPublic()}conturi.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) S.conturi = new Conturi(API, await res.json());
+  } catch { /* etichetele rămân fără apartament */ }
+}
+
+function selectAn(onchange) {
+  return h('select', { class: 'an', 'aria-label': 'Anul', onchange: (ev) => { S.an = Number(ev.target.value); onchange(); } },
+    (conectat() ? S.ani : aniDisponibili()).map((a) => h('option', { value: a, selected: a === S.an }, a)));
+}
+
+function filtreazaSesizari(lista) {
+  const f = S.filtre;
+  const t = f.text.toLowerCase();
   return lista.filter((x) => {
-    if (f.tip && x.tip !== f.tip) return false;
     if (f.stare && x.stare !== f.stare) return false;
-    if (f.de && x.data < f.de) return false;
-    if (f.pana && x.data > f.pana) return false;
-    if (text) {
-      const tot = [x.nr, x.emitent, x.destinatar, x.continut, x.repartizat, x.nrDocExtern, x.dosar, x.observatii,
-        ...(x.fisiere || []).map((fi) => fi.nume)].join(' ').toLowerCase();
-      if (!tot.includes(text)) return false;
+    if (f.domeniu && x.domeniu !== f.domeniu) return false;
+    if (f.rapid === 'depasit' && termenInfo(x)?.nivel !== 'depasit') return false;
+    if (f.rapid === 'aproape' && termenInfo(x)?.nivel !== 'aproape') return false;
+    if (f.rapid === 'desemnat' && x.stare !== 'raspuns_propus') return false;
+    if (f.rapid === 'alemele' && (x.responsabil !== S.cont?.rol || STARI_FINALE.includes(x.stare))) return false;
+    if (f.rapid === 'lunara' && (!x.listaLunara || STARI_FINALE.includes(x.stare))) return false;
+    if (t) {
+      const tot = [x.nr, x.problema, x.solutie, x.nume, x.apartament && `ap ${x.apartament}`, domeniu(x.domeniu)?.nume, x.raspuns?.text].join(' ').toLowerCase();
+      if (!tot.includes(t)) return false;
     }
     return true;
   }).sort((a, b) => b.nr - a.nr);
 }
 
-async function paginaRegistru() {
-  seIncarca('registru');
+function campFiltru(cheie, el, deseneaza) {
+  el.value = S.filtre[cheie];
+  el.addEventListener('input', () => { S.filtre[cheie] = el.value; deseneaza(); });
+  return el;
+}
+
+function bareFiltre(deseneaza) {
+  const opt = (obj, toate) => [h('option', { value: '' }, toate), ...Object.entries(obj).map(([v, t]) => h('option', { value: v }, t))];
+  return h('div', { class: 'filtre' },
+    campFiltru('text', h('input', { type: 'search', placeholder: 'Caută în sesizări…', 'aria-label': 'Caută' }), deseneaza),
+    campFiltru('stare', h('select', { 'aria-label': 'Stare' }, opt(STARI, 'Toate stările')), deseneaza),
+    campFiltru('domeniu', h('select', { 'aria-label': 'Domeniu' }, opt(Object.fromEntries(DOMENII.map((d) => [d.id, d.nume])), 'Toate domeniile')), deseneaza));
+}
+
+// Listă de sesizări ca rânduri-card (aceeași structură pe telefon și pe desktop).
+function listaSesizari(lista, linkFn, { admin = false } = {}) {
+  if (!lista.length) return h('p', { class: 'gol' }, 'Nicio sesizare nu corespunde.');
+  return h('ul', { class: 'lista-sesizari' }, lista.map((x) => h('li', {},
+    h('a', { href: linkFn(x), class: 'rand-sesizare' },
+      h('div', { class: 'rand-cap' },
+        h('span', { class: 'nr' }, `Nr. ${x.nr}`),
+        h('span', { class: 'slab' }, fmtData(x.data)),
+        x.categorie !== 'sesizare' && h('span', { class: 'eticheta' }, CATEGORII[x.categorie]),
+        admin && h('span', { class: 'slab' }, `Ap. ${x.apartament}`),
+        h('span', { class: 'dreapta' }, insignaTermen(x), insignaStare(x))),
+      h('div', { class: 'rand-problema' }, x.problema),
+      h('div', { class: 'rand-meta slab' },
+        domeniu(x.domeniu)?.nume, ' · ', numeRol(x.responsabil),
+        x.listaLunara && !STARI_FINALE.includes(x.stare) ? ' · pe lista ședinței lunare' : '',
+        x.raspuns ? ` · răspuns nr. ${x.raspuns.nr}/${fmtData(x.raspuns.data)}` : (x.termen && !STARI_FINALE.includes(x.stare) ? ` · termen ${fmtData(x.termen)}` : ''))))));
+}
+
+async function paginaPublica() {
+  S.filtre.rapid = ''; // filtrele rapide (contoarele) există doar în administrație
+  seIncarca('public');
+  let date;
   try {
-    stare.date = await stare.reg.citesteAn(stare.an);
-  } catch (e) { return eroarePagina('registru', e); }
-
-  const zona = h('div', { class: 'tabel-zona' });
-  const contor = h('span', { class: 'slab' });
-  const astazi = azi();
-
+    [date] = await Promise.all([citestePublic(S.an), incarcaConturiPublic()]);
+  } catch (e) { return eroarePagina('public', e); }
+  const zona = h('div');
+  const contor = h('p', { class: 'slab mic' });
   const deseneaza = () => {
-    const lista = filtreaza(stare.date.inregistrari);
-    contor.textContent = `${lista.length} din ${stare.date.inregistrari.length} înregistrări`;
-    if (!lista.length) {
-      zona.replaceChildren(h('p', { class: 'gol' }, stare.date.inregistrari.length
-        ? 'Nicio înregistrare nu corespunde filtrelor.' : `Registrul pe ${stare.an} este gol.`));
-      return;
-    }
-    zona.replaceChildren(h('table', { class: 'registru' },
-      h('thead', {}, h('tr', {}, ['Nr.', 'Data', 'Tip', 'Emitent / Destinatar', 'Conținut pe scurt', 'Repartizat', 'Termen', 'Stare', '']
-        .map((t) => h('th', {}, t)))),
-      h('tbody', {}, lista.map((x) => {
-        const intarziat = x.stare === 'deschis' && x.termen && x.termen < astazi;
-        return h('tr', { class: `${x.stare === 'anulat' ? 'anulat' : ''} clic`, tabindex: '0',
-          onclick: () => mergi(`#/doc/${stare.an}/${x.nr}`),
-          onkeydown: (ev) => { if (ev.key === 'Enter') mergi(`#/doc/${stare.an}/${x.nr}`); } },
-        h('td', { class: 'nr' }, x.nr),
-        h('td', { class: 'nowrap' }, fmtData(x.data)),
-        h('td', {}, h('span', { class: `eticheta tip-${x.tip}` }, TIPURI[x.tip])),
-        h('td', {}, x.tip === 'iesire' ? x.destinatar : x.emitent),
-        h('td', { class: 'continut' }, x.continut),
-        h('td', {}, x.repartizat),
-        h('td', { class: `nowrap ${intarziat ? 'intarziat' : ''}` }, fmtData(x.termen)),
-        h('td', {}, h('span', { class: `eticheta stare-${x.stare}` }, STARI[x.stare])),
-        h('td', { class: 'atasat', title: (x.fisiere || []).length ? `${x.fisiere.length} fișier(e)` : '' },
-          (x.fisiere || []).length ? `📎${x.fisiere.length}` : ''));
-      }))));
+    const lista = filtreazaSesizari(date.sesizari);
+    contor.textContent = `${lista.length} din ${date.sesizari.length} sesizări${date.actualizat ? ` · actualizat ${fmtDataOra(date.actualizat)}` : ''}`;
+    zona.replaceChildren(listaSesizari(lista, (x) => `#/p/${S.an}/${x.nr}`));
   };
-
-  const camp = (cheie, el) => {
-    el.value = stare.filtre[cheie];
-    el.addEventListener('input', () => { stare.filtre[cheie] = el.value; deseneaza(); });
-    return el;
-  };
-
-  const optiuni = (obj, toate) => [h('option', { value: '' }, toate), ...Object.entries(obj).map(([v, t]) => h('option', { value: v }, t))];
-
-  afiseaza('registru',
+  const deschise = date.sesizari.filter((x) => !STARI_FINALE.includes(x.stare)).length;
+  afiseaza('public',
     h('div', { class: 'bara' },
-      h('h2', {}, 'Registrul de intrare-ieșire pe anul ',
-        h('select', { class: 'an', 'aria-label': 'Anul', onchange: (ev) => { stare.an = Number(ev.target.value); paginaRegistru(); } },
-          stare.ani.map((a) => h('option', { value: a, selected: a === stare.an }, a)))),
-      h('div', { class: 'actiuni' },
-        h('button', { onclick: () => exportCsv(filtreaza(stare.date.inregistrari).reverse()) }, 'Export Excel (CSV)'),
-        h('button', { onclick: () => window.print() }, 'Tipărește'))),
-    h('div', { class: 'filtre' },
-      camp('text', h('input', { type: 'search', placeholder: 'Caută (nr., emitent, conținut…)', 'aria-label': 'Caută' })),
-      camp('tip', h('select', { 'aria-label': 'Tip' }, optiuni(TIPURI, 'Toate tipurile'))),
-      camp('stare', h('select', { 'aria-label': 'Stare' }, optiuni(STARI, 'Toate stările'))),
-      h('label', { class: 'inline' }, 'De la', camp('de', h('input', { type: 'date' }))),
-      h('label', { class: 'inline' }, 'Până la', camp('pana', h('input', { type: 'date' }))),
-      contor),
-    h('div', { class: 'doar-tipar' },
-      h('h1', {}, stare.reg.config.asociatie.nume),
-      h('p', {}, [stare.reg.config.asociatie.adresa, stare.reg.config.asociatie.cif && `CIF ${stare.reg.config.asociatie.cif}`].filter(Boolean).join(' · ')),
-      h('h2', {}, `Registru de intrare-ieșire — anul ${stare.an}`)),
+      h('h1', {}, 'Sesizări ', selectAn(paginaPublica)),
+      h('a', { href: '#/cum', class: 'buton principal' }, 'Cum depun o sesizare')),
+    h('div', { class: 'contoare' },
+      h('div', { class: 'contor' }, h('strong', {}, date.sesizari.length), h('span', {}, 'înregistrate')),
+      h('div', { class: 'contor' }, h('strong', {}, deschise), h('span', {}, 'în lucru')),
+      h('div', { class: 'contor' }, h('strong', {}, date.sesizari.length - deschise), h('span', {}, 'cu răspuns'))),
+    bareFiltre(deseneaza),
+    contor,
     zona);
   deseneaza();
 }
 
-// ---------- detaliu document ----------
-
-async function deschideFisier(f) {
-  const fereastra = window.open('', '_blank'); // deschisă sincron, ca să nu fie blocată
-  try {
-    const blob = await stare.reg.descarca(f);
-    const url = URL.createObjectURL(blob);
-    if (fereastra) fereastra.location = url; else descarcaBlob(blob, f.nume);
-    setTimeout(() => URL.revokeObjectURL(url), 300000);
-  } catch (e) {
-    fereastra?.close();
-    alert(mesajEroare(e));
-  }
+function paginaCum() {
+  afiseaza('cum',
+    h('h1', {}, 'Cum depun o sesizare'),
+    h('div', { class: 'card' },
+      h('p', {}, 'Sesizările, propunerile și contestațiile se depun numai în scris (Regulamentul intern, art. 20), pe unul dintre canalele oficiale:'),
+      h('ul', {},
+        h('li', {}, 'e-mail: ', h('a', { href: `mailto:${ASOCIATIA.email}` }, ASOCIATIA.email)),
+        h('li', {}, 'e-bloc, secțiunea „Contact”'),
+        h('li', {}, 'pe hârtie, în cutia poștală a asociației sau predată responsabilului cu corespondența')),
+      h('p', { class: 'slab' }, 'Sesizările verbale, telefonice sau pe WhatsApp nu se înregistrează și nu primesc răspuns.')),
+    h('div', { class: 'card' },
+      h('h2', {}, 'Ce trebuie să conțină (art. 21)'),
+      h('ol', {},
+        h('li', {}, 'numele și apartamentul;'),
+        h('li', {}, 'problema;'),
+        h('li', {}, 'soluția pe care o propui;'),
+        h('li', {}, 'costul estimat, dacă îl cunoști;'),
+        h('li', {}, 'dacă te ocupi tu de soluție (da / nu / pot ajuta).')),
+      h('p', {}, `Sesizarea primește un număr de înregistrare și apare pe această pagină, fără numele tău și fără numărul apartamentului. Răspunsul scris se dă în cel mult ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
+      h('p', { class: 'slab' }, 'O sesizare fără propunere de soluție primește răspuns în termen, dar se discută la ședința lunară a comitetului (art. 23). Contestațiile la lista de plată se depun în 10 zile de la afișarea listei (art. 28 alin. (3)).')));
 }
 
-async function paginaDocument(an, nr) {
-  seIncarca('registru');
+async function verificareSemnatura(x, an) {
+  const el = h('p', { class: 'mic slab' }, 'Se verifică semnătura…');
+  (async () => {
+    if (!x.raspuns?.amprenta) { el.textContent = ''; return; }
+    const ok = (await amprenta(continutSemnat(x, an, x.raspuns))) === x.raspuns.amprenta;
+    el.className = `mic ${ok ? 'verificat' : 'eroare'}`;
+    el.textContent = ok
+      ? `✓ Semnătură electronică verificată — textul nu a fost modificat după semnare. Cod: ${codVerificare(x.raspuns.amprenta)}`
+      : '✗ Textul nu corespunde semnăturii.';
+  })();
+  return el;
+}
+
+async function blocRaspuns(x, an) {
+  const r = x.raspuns;
+  return h('div', { class: 'card raspuns' },
+    h('h2', {}, `Răspuns nr. ${r.nr} din ${fmtData(r.data)}`),
+    h('p', { class: 'text-lung' }, r.text),
+    h('p', { class: 'slab mic' }, `Semnat electronic de ${eticheta(r.semnatDe || 'presedinte')}${r.semnatLa ? `, ${fmtDataOra(r.semnatLa)}` : ''}.`),
+    await verificareSemnatura(x, an),
+    h('button', { class: 'nu-tipari', onclick: () => window.print() }, 'Tipărește / salvează PDF'));
+}
+
+function blocIstoric(x) {
+  const lista = (x.istoric || []).filter((i) => conectat() || !i.intern);
+  if (!lista.length) return null;
+  return h('div', { class: 'card nu-tipari' },
+    h('h2', {}, 'Istoric'),
+    h('ol', { class: 'istoric' }, lista.map((i) => h('li', { class: i.intern ? 'intern' : null },
+      h('span', { class: 'slab mic' }, `${fmtDataOra(i.la)} · ${eticheta(i.u)}${i.intern ? ' · intern' : ''}`),
+      h('span', {}, i.actiune)))));
+}
+
+function campuriSesizare(x, { admin }) {
+  const rand = (et, val) => (val ? [h('dt', {}, et), h('dd', {}, val)] : null);
+  return h('dl', { class: 'detalii' },
+    admin && rand('Apartament', `Ap. ${x.apartament}`),
+    admin && rand('Nume și prenume', x.nume),
+    rand('Tip', CATEGORII[x.categorie]),
+    rand('Domeniu', domeniu(x.domeniu)?.nume),
+    rand('Problema', x.problema),
+    rand('Soluția propusă', x.solutie || '— fără propunere (se discută la ședința lunară a comitetului, art. 23)'),
+    rand('Cost estimat', x.cost),
+    rand('Se ocupă autorul', OCUPARE[x.maOcup]),
+    rand('Primită prin', CANALE[x.canal]),
+    rand('Responsabil', numeRol(x.responsabil)),
+    rand('Termen de răspuns', x.termen ? fmtData(x.termen) : (x.categorie === 'propunere' ? 'se discută în prima ședință a comitetului (art. 24)' : '')));
+}
+
+async function paginaPublicaDetaliu(an, nr) {
+  seIncarca('public');
   let x;
   try {
-    const date = await stare.reg.citesteAn(an);
-    x = date.inregistrari.find((i) => i.nr === nr);
-  } catch (e) { return eroarePagina('registru', e); }
-  if (!x) return afiseaza('registru', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există.`), h('a', { href: '#/registru' }, '← Înapoi la registru'));
+    const [date] = await Promise.all([citestePublic(an), incarcaConturiPublic()]);
+    x = date.sesizari.find((i) => i.nr === nr);
+  } catch (e) { return eroarePagina('public', e); }
+  if (!x) return afiseaza('public', h('p', { class: 'eroare' }, `Sesizarea nr. ${nr}/${an} nu a fost găsită.`), h('a', { href: '#/' }, '← Înapoi'));
+  afiseaza('public',
+    h('a', { href: '#/', class: 'inapoi nu-tipari' }, '← Toate sesizările'),
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
+    h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x), x.listaLunara && !STARI_FINALE.includes(x.stare) && h('span', { class: 'eticheta' }, 'Pe lista ședinței lunare')),
+    alertaTermen(x),
+    h('div', { class: 'card' }, campuriSesizare(x, { admin: false })),
+    x.raspuns ? await blocRaspuns(x, an) : h('div', { class: 'card' }, h('p', { class: 'slab' }, x.termen ? `Răspunsul va apărea aici. Termen: ${fmtData(x.termen)}.` : 'Răspunsul va apărea aici.')),
+    blocIstoric(x));
+}
 
-  const poateScrie = stare.info?.permissions?.push;
-  const actiune = async (btn, fn, mesaj) => {
+// ---------- autentificare ----------
+
+async function ecranLogin(eroare = '') {
+  let conturi;
+  try {
+    conturi = await Conturi.incarca(API);
+  } catch (e) { return afiseaza('login', h('p', { class: 'eroare' }, mesajEroare(e))); }
+  if (!conturi) return ecranConfigurare();
+
+  const form = h('form', { class: 'card conectare', onsubmit: async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Se verifică…';
+    const rez = await conturi.autentifica(form.u.value, form.p.value);
+    if (!rez) return ecranLogin('Utilizator sau parolă greșită.');
+    S.conturi = conturi;
+    scrieSesiune({ u: rez.cont.u, token: rez.token });
+    try {
+      await intra(rez.cont, rez.token);
+    } catch (e) {
+      stergeSesiune();
+      ecranLogin(mesajEroare(e));
+    }
+  } },
+  h('h1', {}, 'Administrație'),
+  h('p', { class: 'slab' }, 'Acces pentru președinte, responsabilii de domeniu, cenzor și administrator.'),
+  eroare && h('p', { class: 'eroare', role: 'alert' }, eroare),
+  h('label', {}, 'Utilizator', h('input', { name: 'u', required: true, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'ex. resp02' })),
+  h('label', {}, 'Parola', h('input', { name: 'p', type: 'password', required: true, autocomplete: 'current-password' })),
+  h('button', { type: 'submit', class: 'principal' }, 'Conectare'),
+  h('p', { class: 'slab mic' }, 'Ai uitat parola? Cere președintelui o parolă temporară nouă.'));
+  afiseaza('login', h('div', { class: 'centrat' }, form));
+  form.u.focus();
+}
+
+async function intra(cont, token) {
+  S.cont = cont;
+  S.token = token;
+  const gh = new GitHubRepo({ apiBase: API, token, repo: REPO_DATE });
+  const ghPublic = new GitHubRepo({ apiBase: API, token, repo: REPO_PUBLIC });
+  await ghPublic.info();
+  S.reg = new Registru(gh, ghPublic, cont);
+  await S.reg.init();
+  S.ani = await S.reg.ani();
+  if (!S.ani.includes(S.an)) S.an = S.ani[0];
+  if (cont.temporara) return ecranParola(true);
+  if (location.hash.startsWith('#/admin') && !location.hash.startsWith('#/admin/parola')) ruta(); else mergi('#/admin');
+}
+
+function ecranParola(obligatoriu = false) {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const form = h('form', { class: 'card conectare', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const arata = (m) => { eroare.textContent = m; eroare.hidden = false; };
+    if (!obligatoriu && !(await S.conturi.autentifica(S.cont.u, form.veche.value))) return arata('Parola actuală nu este corectă.');
+    const problema = verificaParola(S.cont.u, form.noua.value);
+    if (problema) return arata(problema);
+    if (form.noua.value !== form.confirmare.value) return arata('Cele două parole nu coincid.');
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Se salvează…';
+    try {
+      S.cont = await S.conturi.schimbaParola(S.token, S.cont.u, form.noua.value);
+      S.mesaj = 'Parola a fost schimbată.';
+      mergi('#/admin');
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Schimbă parola';
+      arata(mesajEroare(e));
+    }
+  } },
+  h('h1', {}, obligatoriu ? 'Alege o parolă nouă' : 'Schimbă parola'),
+  obligatoriu && h('p', {}, `Te-ai conectat ca ${eticheta(S.cont.u)} cu o parolă temporară. Alege acum parola ta.`),
+  eroare,
+  !obligatoriu && h('label', {}, 'Parola actuală', h('input', { name: 'veche', type: 'password', required: true, autocomplete: 'current-password' })),
+  h('label', {}, `Parola nouă (minim ${MIN_PAROLA} caractere, litere și cifre)`, h('input', { name: 'noua', type: 'password', required: true, minlength: MIN_PAROLA, autocomplete: 'new-password' })),
+  h('label', {}, 'Repetă parola nouă', h('input', { name: 'confirmare', type: 'password', required: true, autocomplete: 'new-password' })),
+  h('button', { type: 'submit', class: 'principal' }, 'Schimbă parola'),
+  obligatoriu && h('button', { type: 'button', class: 'link', onclick: iesire }, 'Renunță și ieși'));
+  afiseaza('parola', h('div', { class: 'centrat' }, form));
+}
+
+// ---------- bilete cu parole (configurare și resetare) ----------
+
+function bilete(lista) {
+  const site = `${location.origin}${location.pathname}#/admin`;
+  return h('div', { class: 'bilete' }, lista.map((b) => h('div', { class: 'bilet' },
+    h('strong', {}, ASOCIATIA.nume),
+    h('span', {}, `Cont: ${numeRol(b.rol)}`),
+    h('span', {}, 'Site: ', h('b', {}, site)),
+    h('span', {}, 'Utilizator: ', h('b', { class: 'cod' }, b.u)),
+    h('span', {}, 'Parolă temporară: ', h('b', { class: 'cod' }, b.parola)),
+    h('span', { class: 'mic' }, 'La prima conectare vei alege o parolă nouă.'))));
+}
+
+function tiparesteBilete() {
+  document.body.classList.add('tipar-bilete');
+  window.print();
+  setTimeout(() => document.body.classList.remove('tipar-bilete'), 500);
+}
+
+function ecranConfigurare() {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const progres = h('p', { class: 'slab' });
+  const form = h('form', { class: 'card', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const btn = form.querySelector('button');
     btn.disabled = true;
     try {
-      await fn();
-      stare.mesaj = mesaj;
-      paginaDocument(an, nr);
+      const parole = await Conturi.genereaza(API, form.token.value.trim(), (i, n) => { progres.textContent = `Se generează conturile… ${i}/${n}`; });
+      afiseaza('login',
+        h('h1', {}, 'Conturile au fost create'),
+        h('p', { class: 'avertizare' }, 'Lista de mai jos se afișează o singură dată. Tipărește-o acum și dă fiecărui titular biletul lui. Dacă se pierde, poți reseta parolele din pagina Utilizatori.'),
+        h('div', { class: 'actiuni nu-tipari' },
+          h('button', { class: 'principal', onclick: tiparesteBilete }, 'Tipărește biletele'),
+          h('a', { href: '#/admin', class: 'buton', onclick: () => setTimeout(() => ruta(), 0) }, 'Mergi la conectare')),
+        bilete(parole));
+    } catch (e) {
+      btn.disabled = false;
+      progres.textContent = '';
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('h1', {}, 'Configurare inițială'),
+  h('p', {}, 'Aplicația nu are încă conturi. Configurarea se face o singură dată, de către președinte.'),
+  h('ol', {},
+    h('li', {}, 'Creează cheia de acces GitHub după ', h('a', { href: 'https://github.com/adysaba84/RegistruElectronicDocumenteAsociatie#cheia-de-acces', target: '_blank', rel: 'noopener' }, 'instrucțiuni'), '.'),
+    h('li', {}, 'Lipește-o mai jos. Aplicația creează conturile administrației, fiecare cu o parolă temporară diferită.'),
+    h('li', {}, 'Tipărește biletele cu parole și împarte-le.')),
+  eroare,
+  h('label', {}, 'Cheia de acces GitHub', h('input', { name: 'token', type: 'password', required: true, autocomplete: 'off', placeholder: 'github_pat_…' })),
+  progres,
+  h('button', { type: 'submit', class: 'principal' }, 'Creează conturile'));
+  afiseaza('login', form);
+}
+
+// ---------- administrație: sesizări ----------
+
+async function paginaAdmin() {
+  seIncarca('admin');
+  let reg;
+  try { reg = await S.reg.citesteAn(S.an); } catch (e) { return eroarePagina('admin', e); }
+  const toate = reg.inregistrari.filter((x) => CATEGORII_SESIZARE.includes(x.categorie));
+  const nr = (f) => toate.filter(f).length;
+  const deschise = (x) => !STARI_FINALE.includes(x.stare);
+  const n = {
+    depasit: nr((x) => termenInfo(x)?.nivel === 'depasit'),
+    aproape: nr((x) => termenInfo(x)?.nivel === 'aproape'),
+    desemnat: nr((x) => x.stare === 'raspuns_propus'),
+    alemele: nr((x) => x.responsabil === S.cont.rol && deschise(x)),
+    lunara: nr((x) => x.listaLunara && deschise(x)),
+  };
+  const zona = h('div');
+  const deseneaza = () => {
+    zona.replaceChildren(listaSesizari(filtreazaSesizari(toate), (x) => `#/admin/s/${S.an}/${x.nr}`, { admin: true }));
+    contoare.querySelectorAll('button').forEach((b) => b.classList.toggle('activ', b.dataset.k === S.filtre.rapid));
+  };
+  const contor = (k, et, cls) => h('button', { class: `contor ${cls || ''}`, 'data-k': k, onclick: () => { S.filtre.rapid = S.filtre.rapid === k ? '' : k; deseneaza(); } },
+    h('strong', {}, k ? n[k] : toate.length), h('span', {}, et));
+  const contoare = h('div', { class: 'contoare' },
+    contor('', 'toate'),
+    contor('depasit', 'termen depășit', n.depasit ? 'rosu' : ''),
+    contor('aproape', 'aproape de termen', n.aproape ? 'galben' : ''),
+    ePresedinte() ? contor('desemnat', 'de semnat', n.desemnat ? 'albastru' : '') : contor('alemele', 'ale mele'),
+    contor('lunara', 'lista lunară'));
+  afiseaza('admin',
+    h('div', { class: 'bara' },
+      h('h1', {}, 'Sesizări ', selectAn(paginaAdmin)),
+      poateInregistra() && h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Înregistrează sesizare')),
+    n.depasit > 0 && h('p', { class: 'eroare', role: 'alert' },
+      `${n.depasit} ${n.depasit === 1 ? 'sesizare a depășit' : 'sesizări au depășit'} termenul legal de răspuns de ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
+    contoare,
+    bareFiltre(deseneaza),
+    zona);
+  deseneaza();
+}
+
+function formularSesizare() {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const fisiere = h('input', { type: 'file', name: 'fisiere', multiple: true, accept: '.pdf,.jpg,.jpeg,.png,.heic,.doc,.docx' });
+  const repartizare = h('p', { class: 'slab mic' });
+  const alegeDomeniu = h('select', { name: 'domeniu', required: true, onchange: () => {
+    const d = domeniu(alegeDomeniu.value);
+    repartizare.textContent = d ? `Se repartizează automat: ${numeRol(d.rol)}` : '';
+  } }, h('option', { value: '' }, 'Alege domeniul…'), DOMENII.map((d) => h('option', { value: d.id }, d.nume)));
+  const radio = (name, obj, implicit) => h('div', { class: 'optiuni' }, Object.entries(obj).map(([v, t]) => h('label', { class: 'bifa' },
+    h('input', { type: 'radio', name, value: v, checked: v === implicit, required: true }), t)));
+
+  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const c = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => k !== 'fisiere'));
+    const noi = [...fisiere.files];
+    const mare = noi.find((f) => f.size > MAX_FISIER);
+    if (mare) { eroare.textContent = `„${mare.name}” depășește 25 MB.`; eroare.hidden = false; return; }
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.textContent = noi.length ? 'Se urcă fișierele…' : 'Se înregistrează…';
+    try {
+      const r = await S.reg.adaugaSesizare(c, noi);
+      S.mesaj = `Sesizarea a fost înregistrată cu nr. ${r.x.nr} din ${fmtData(r.x.data)}${r.x.termen ? `. Termen de răspuns: ${fmtData(r.x.termen)}` : ''}.`
+        + (r.publicat ? '' : ' Atenție: pagina publică nu s-a actualizat — reîncearcă din butonul „Republică”.');
+      mergi(`#/admin/s/${r.an}/${r.x.nr}`);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = 'Înregistrează sesizarea';
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('p', { class: 'slab' }, 'Numărul de înregistrare și data se dau automat. Completează după formularul primit (Regulamentul intern, art. 21).'),
+  h('div', { class: 'grila' },
+    h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
+      h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`)))),
+    h('label', {}, 'Nume și prenume *', h('input', { name: 'nume', required: true, autocomplete: 'off' })),
+    h('label', {}, 'Primită prin *', h('select', { name: 'canal', required: true },
+      Object.entries(CANALE).filter(([k]) => k !== 'aplicatie').map(([v, t]) => h('option', { value: v }, t)))),
+    h('label', {}, 'Domeniul *', alegeDomeniu, repartizare)),
+  h('fieldset', {}, h('legend', {}, 'Tipul'), radio('categorie', { sesizare: 'Sesizare', contestatie: 'Contestație la lista de plată', propunere: 'Propunere de proiect' }, 'sesizare')),
+  h('div', { class: 'grila' },
+    h('label', { class: 'lat' }, 'Problema *', h('textarea', { name: 'problema', required: true, rows: 4, maxlength: 4000 })),
+    h('label', { class: 'lat' }, 'Soluția propusă', h('textarea', { name: 'solutie', rows: 3, maxlength: 4000 }),
+      h('span', { class: 'slab mic' }, 'Fără soluție propusă, sesizarea primește răspuns în termen, dar se discută la ședința lunară (art. 23).')),
+    h('label', {}, 'Costul estimat', h('input', { name: 'cost', placeholder: 'ex. 500 lei' }))),
+  h('fieldset', {}, h('legend', {}, 'Se ocupă autorul de soluție?'), radio('maOcup', OCUPARE, 'nu')),
+  h('label', {}, 'Scanul sesizării / fotografii (max. 25 MB fiecare)', fisiere),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, 'Înregistrează sesizarea'),
+    h('a', { href: '#/admin', class: 'buton' }, 'Renunță')));
+  afiseaza('sesizare-noua', h('h1', {}, 'Înregistrează o sesizare'), form);
+}
+
+async function paginaAdminDetaliu(an, nr) {
+  seIncarca('admin');
+  let x;
+  try { x = (await S.reg.citesteAn(an)).inregistrari.find((i) => i.nr === nr); } catch (e) { return eroarePagina('admin', e); }
+  if (!x) return afiseaza('admin', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există.`), h('a', { href: '#/admin' }, '← Înapoi'));
+  if (!CATEGORII_SESIZARE.includes(x.categorie)) return detaliuDocument(an, x);
+
+  const actiune = (fn, mesaj) => async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      const r = await fn();
+      S.mesaj = (typeof mesaj === 'function' ? mesaj(r) : mesaj) + (r && r.publicat === false ? ' Atenție: pagina publică nu s-a actualizat.' : '');
+      paginaAdminDetaliu(an, nr);
     } catch (e) {
       btn.disabled = false;
       alert(mesajEroare(e));
     }
   };
+  const finala = STARI_FINALE.includes(x.stare);
+  const blocuri = [];
 
-  const rand = (eticheta, valoare) => (valoare ? [h('dt', {}, eticheta), h('dd', {}, valoare)] : null);
-  const repo = stare.reg.gh.repo;
+  // Răspuns
+  if (x.raspuns) {
+    blocuri.push(await blocRaspuns(x, an));
+  } else {
+    const parti = [h('h2', {}, 'Răspuns')];
+    if (x.raspunsDraft) {
+      parti.push(h('p', { class: 'slab mic' }, `${x.stare === 'raspuns_propus' ? 'Trimis la semnat' : 'Ciornă'} — ${eticheta(x.raspunsDraft.de)}, ${fmtDataOra(x.raspunsDraft.la)}`));
+    }
+    if (ePresedinte() && x.stare === 'raspuns_propus') {
+      parti.push(h('p', { class: 'text-lung cutie' }, x.raspunsDraft.text),
+        h('div', { class: 'actiuni' },
+          h('button', { class: 'principal', onclick: actiune(() => S.reg.semneazaRaspuns(an, nr), (r) => `Răspuns semnat electronic și înregistrat cu nr. ${r.raspuns.nr} din ${fmtData(r.raspuns.data)}.`) }, 'Semnează și înregistrează răspunsul'),
+          h('button', { onclick: (ev) => {
+            const motiv = prompt('Ce trebuie refăcut în răspuns?');
+            if (motiv && motiv.trim()) actiune(() => S.reg.respingeRaspuns(an, nr, motiv.trim()), 'Răspuns returnat responsabilului.')(ev);
+          } }, 'Returnează pentru refacere')));
+    } else if (poateLucra(x) && !finala) {
+      const text = h('textarea', { rows: 8, maxlength: 8000, 'aria-label': 'Textul răspunsului' }, x.raspunsDraft?.text || '');
+      parti.push(text, h('div', { class: 'actiuni' },
+        h('button', { onclick: actiune(() => S.reg.salveazaRaspuns(an, nr, text.value, false), 'Ciorna a fost salvată.') }, 'Salvează ciorna'),
+        h('button', { class: 'principal', onclick: actiune(() => S.reg.salveazaRaspuns(an, nr, text.value, true), 'Răspunsul a fost trimis președintelui la semnat.') }, 'Trimite la semnat')));
+    } else if (x.raspunsDraft) {
+      parti.push(h('p', { class: 'text-lung cutie' }, x.raspunsDraft.text));
+    } else {
+      parti.push(h('p', { class: 'slab' }, `Răspunsul îl redactează ${numeRol(x.responsabil)}.`));
+    }
+    blocuri.push(h('div', { class: 'card nu-tipari' }, parti));
+  }
 
-  afiseaza('registru',
-    h('a', { href: '#/registru', class: 'inapoi' }, '← Registru'),
-    h('div', { class: 'bara' },
-      h('h2', {}, `Nr. ${x.nr} din ${fmtData(x.data)} `,
-        h('span', { class: `eticheta tip-${x.tip}` }, TIPURI[x.tip]), ' ',
-        h('span', { class: `eticheta stare-${x.stare}` }, STARI[x.stare])),
-      poateScrie && x.stare !== 'anulat' && h('div', { class: 'actiuni' },
-        h('button', { onclick: () => mergi(`#/doc/${an}/${nr}/editare`) }, 'Editează'),
-        x.tip === 'intrare' && h('button', { onclick: () => mergi(`#/nou?raspuns=${an}/${nr}`) }, 'Răspunde'),
-        x.stare === 'deschis'
-          ? h('button', { class: 'principal', onclick: (ev) => actiune(ev.target, () => stare.reg.schimbaStare(an, nr, 'rezolvat'), 'Marcat ca rezolvat.') }, 'Marchează rezolvat')
-          : h('button', { onclick: (ev) => actiune(ev.target, () => stare.reg.schimbaStare(an, nr, 'deschis'), 'Redeschis.') }, 'Redeschide'),
-        h('button', { class: 'pericol', onclick: (ev) => {
-          const motiv = prompt('Motivul anulării (numărul rămâne rezervat, înregistrarea nu se șterge):');
-          if (motiv && motiv.trim()) actiune(ev.target, () => stare.reg.schimbaStare(an, nr, 'anulat', motiv.trim()), 'Înregistrare anulată.');
-        } }, 'Anulează'))),
-    h('div', { class: 'card' },
-      h('dl', { class: 'detalii' },
-        rand('Conținut pe scurt', x.continut),
-        rand('Emitent (de unde provine)', x.emitent),
-        rand('Destinatar', x.destinatar),
-        rand('Nr. / data documentului', [x.nrDocExtern, fmtData(x.dataDocExtern)].filter(Boolean).join(' din ')),
-        rand('Repartizat', x.repartizat),
-        rand('Termen de rezolvare', fmtData(x.termen)),
-        rand('Conexat la nr.', x.conexat),
-        rand('Indicativ dosar', x.dosar),
-        rand('Data expedierii', fmtData(x.dataExpedierii)),
-        rand('Observații', x.observatii),
-        rand('Motivul anulării', x.motivAnulare),
-        rand('Înregistrat de', `${x.creatDe} — ${fmtDataOra(x.creatLa)}`),
-        rand('Ultima modificare', x.modificatLa && `${x.modificatDe} — ${fmtDataOra(x.modificatLa)}`))),
-    h('div', { class: 'card' },
-      h('h3', {}, 'Fișiere atașate'),
-      (x.fisiere || []).length
-        ? h('ul', { class: 'fisiere' }, x.fisiere.map((f) => h('li', {},
-          h('span', {}, f.nume, ' ', h('span', { class: 'slab' }, `(${fmtMarime(f.marime)})`)),
-          h('span', { class: 'actiuni' },
-            h('button', { onclick: () => deschideFisier(f) }, 'Deschide'),
-            h('button', { onclick: async () => { try { descarcaBlob(await stare.reg.descarca(f), f.nume); } catch (e) { alert(mesajEroare(e)); } } }, 'Descarcă')))))
-        : h('p', { class: 'slab' }, 'Niciun fișier atașat.')),
-    h('p', { class: 'mic slab' },
-      h('a', { href: `https://github.com/${repo}/commits/HEAD/registru/${an}.json`, target: '_blank', rel: 'noopener' }, 'Istoricul complet al modificărilor (GitHub)')));
+  // Acțiuni
+  const act = [];
+  if (poateLucra(x) && x.stare === 'repartizata') {
+    act.push(h('button', { onclick: actiune(() => S.reg.incepeLucrul(an, nr), 'Sesizarea a fost preluată în lucru.') }, 'Preiau în lucru'));
+  }
+  if (ePresedinte() && !finala) {
+    const sel = h('select', { 'aria-label': 'Responsabil' }, ROLURI.filter((r) => r.id !== 'cenzor').map((r) => h('option', { value: r.id, selected: r.id === x.responsabil }, numeRol(r.id))));
+    act.push(h('div', { class: 'rand-actiune' }, sel,
+      h('button', { onclick: (ev) => sel.value !== x.responsabil && actiune(() => S.reg.repartizeaza(an, nr, sel.value, numeRol(sel.value)), 'Sesizarea a fost repartizată.')(ev) }, 'Repartizează')));
+  }
+  if (ePresedinte()) {
+    if (x.stare === 'raspuns_trimis') act.push(h('button', { onclick: actiune(() => S.reg.inchide(an, nr, prompt('Notă de închidere (opțional, apare public):') || ''), 'Sesizarea a fost închisă.') }, 'Închide (rezolvată)'));
+    if (x.stare === 'inchisa') act.push(h('button', { onclick: actiune(() => S.reg.redeschide(an, nr), 'Sesizarea a fost redeschisă.') }, 'Redeschide'));
+    if (!finala) act.push(h('button', { onclick: actiune(() => S.reg.seteazaListaLunara(an, nr, !x.listaLunara), 'Actualizat.') }, x.listaLunara ? 'Scoate de pe lista lunară' : 'Pune pe lista ședinței lunare'));
+    act.push(h('button', { onclick: actiune(() => S.reg.publica(an).then(() => ({ publicat: true })), 'Pagina publică a fost actualizată.') }, 'Republică'));
+  }
+  if (poateNota()) {
+    const nota = h('textarea', { rows: 2, placeholder: 'Notă internă (nu apare public)…', 'aria-label': 'Notă internă' });
+    const fis = h('input', { type: 'file', multiple: true, 'aria-label': 'Fișiere' });
+    act.push(h('div', { class: 'nota' }, nota, fis,
+      h('button', { onclick: (ev) => (nota.value.trim() || fis.files.length) && actiune(() => S.reg.adaugaNota(an, nr, nota.value, [...fis.files]), 'Nota a fost adăugată.')(ev) }, 'Adaugă notă / fișiere')));
+  }
+
+  afiseaza('admin',
+    h('a', { href: '#/admin', class: 'inapoi nu-tipari' }, '← Sesizări'),
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
+    h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x), x.listaLunara && !finala && h('span', { class: 'eticheta' }, 'Pe lista ședinței lunare'),
+      h('a', { href: `#/p/${an}/${nr}`, class: 'mic nu-tipari' }, 'vezi pagina publică')),
+    alertaTermen(x),
+    h('div', { class: 'card' }, campuriSesizare(x, { admin: true })),
+    blocFisiere(x),
+    blocuri,
+    act.length && h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Acțiuni'), h('div', { class: 'actiuni-col' }, act)),
+    blocIstoric(x),
+    h('p', { class: 'mic slab nu-tipari' }, 'Amprenta înregistrării: ', h('code', {}, codVerificare(x.amprenta) || '—')));
 }
 
-// ---------- formular înregistrare / editare ----------
+function blocFisiere(x) {
+  if (!(x.fisiere || []).length) return null;
+  return h('div', { class: 'card nu-tipari' },
+    h('h2', {}, 'Fișiere'),
+    h('ul', { class: 'fisiere' }, x.fisiere.map((f) => h('li', {},
+      h('span', {}, f.nume, ' ', h('span', { class: 'slab' }, `(${fmtMarime(f.marime)})`)),
+      h('button', { onclick: async () => {
+        try { descarcaBlob(await S.reg.descarca(f), f.nume); } catch (e) { alert(mesajEroare(e)); }
+      } }, 'Descarcă')))));
+}
 
-async function paginaFormular({ an, nr, raspuns } = {}) {
-  const editare = nr !== undefined;
-  const activ = editare ? 'registru' : 'nou';
-  seIncarca(activ);
-  let x = { tip: 'intrare' };
-  try {
-    if (editare) {
-      x = (await stare.reg.citesteAn(an)).inregistrari.find((i) => i.nr === nr);
-      if (!x) throw new Error(`Nr. ${nr}/${an} nu există.`);
-    } else if (raspuns) {
-      const [ra, rn] = raspuns.split('/').map(Number);
-      const orig = (await stare.reg.citesteAn(ra)).inregistrari.find((i) => i.nr === rn);
-      if (orig) {
-        x = { tip: 'iesire', destinatar: orig.emitent, conexat: `${orig.nr}/${fmtData(orig.data)}`, dosar: orig.dosar,
-          continut: `Răspuns la ${orig.continut || ''}`.slice(0, 300) };
-      }
-    }
-  } catch (e) { return eroarePagina(activ, e); }
+function detaliuDocument(an, x) {
+  const rand = (et, val) => (val ? [h('dt', {}, et), h('dd', {}, val)] : null);
+  const conexat = x.conexat && /^\d+\/\d{4}$/.test(x.conexat)
+    ? h('a', { href: `#/admin/s/${x.conexat.split('/')[1]}/${x.conexat.split('/')[0]}` }, `nr. ${x.conexat}`) : x.conexat;
+  afiseaza('registru',
+    h('a', { href: '#/admin/registru', class: 'inapoi' }, '← Registru'),
+    h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
+    h('div', { class: 'card' }, h('dl', { class: 'detalii' },
+      rand('Tip', TIPURI_DOC[x.tip]),
+      rand('Emitent', x.emitent),
+      rand('Destinatar', x.destinatar),
+      rand('Nr. documentului emitentului', x.nrDocExtern),
+      rand('Conținut', x.continut),
+      rand('Conexat la', conexat),
+      rand('Redactat de', x.redactatDe && eticheta(x.redactatDe)),
+      rand('Semnătură', x.semnatura && codVerificare(x.semnatura)),
+      rand('Înregistrat de', `${eticheta(x.creatDe)} — ${fmtDataOra(x.creatLa)}`),
+      rand('Amprenta înregistrării', codVerificare(x.amprenta)))),
+    blocFisiere(x));
+}
 
-  const compartimente = stare.reg.config.compartimente || [];
-  const v = (k) => x[k] || '';
-  const fisiere = h('input', { type: 'file', name: 'fisiere', multiple: true, accept: '.pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.odt,.txt' });
+// ---------- registru complet ----------
+
+const COLOANE_CSV = [
+  ['Nr.', (x) => x.nr], ['Data', (x) => fmtData(x.data)], ['Tip', (x) => TIPURI_DOC[x.tip]], ['Categorie', (x) => CATEGORII[x.categorie]],
+  ['Emitent', (x) => (CATEGORII_SESIZARE.includes(x.categorie) ? `Ap. ${x.apartament}` : x.emitent)],
+  ['Destinatar', (x) => (CATEGORII_SESIZARE.includes(x.categorie) ? numeRol(x.responsabil) : x.destinatar)],
+  ['Conținut pe scurt', (x) => x.problema || x.continut], ['Conexat', (x) => x.conexat || (x.raspuns ? `${x.raspuns.nr}/${x.raspuns.an}` : '')],
+  ['Stare', (x) => STARI[x.stare] || ''], ['Termen', (x) => fmtData(x.termen)], ['Amprentă', (x) => codVerificare(x.amprenta)],
+];
+
+function exportCsv(lista) {
+  const cel = (v) => {
+    let s = v === undefined || v === null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  const randuri = [COLOANE_CSV.map(([t]) => cel(t)).join(';')].concat(lista.map((x) => COLOANE_CSV.map(([, f]) => cel(f(x))).join(';')));
+  descarcaBlob(new Blob(['﻿' + randuri.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `registru-${S.an}.csv`);
+}
+
+async function paginaRegistru() {
+  seIncarca('registru');
+  let reg;
+  try { reg = await S.reg.citesteAn(S.an); } catch (e) { return eroarePagina('registru', e); }
+  const lista = [...reg.inregistrari].sort((a, b) => a.nr - b.nr);
+  const lant = h('span', { class: 'mic slab' }, 'Se verifică lanțul de amprente…');
+  verificaLant(reg).then((r) => {
+    lant.className = `mic ${r.valid ? 'verificat' : 'eroare'}`;
+    lant.textContent = r.valid ? '✓ Lanțul de amprente al registrului este intact.' : `✗ Lanțul de amprente este rupt la nr. ${r.nr}.`;
+  });
+  afiseaza('registru',
+    h('div', { class: 'bara' },
+      h('h1', {}, 'Registru de intrare-ieșire ', selectAn(paginaRegistru)),
+      h('div', { class: 'actiuni nu-tipari' },
+        h('button', { onclick: () => exportCsv(lista) }, 'Export Excel'),
+        h('button', { onclick: () => window.print() }, 'Tipărește'))),
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, `Registru de intrare-ieșire — anul ${S.an}`)),
+    h('p', { class: 'nu-tipari' }, lant),
+    lista.length
+      ? h('div', { class: 'tabel-zona' }, h('table', { class: 'registru' },
+        h('thead', {}, h('tr', {}, ['Nr.', 'Data', 'Tip', 'Emitent', 'Destinatar', 'Conținut pe scurt', 'Conexat', 'Stare'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, lista.map((x) => h('tr', { class: 'clic', tabindex: '0', onclick: () => mergi(`#/admin/s/${S.an}/${x.nr}`), onkeydown: (ev) => ev.key === 'Enter' && mergi(`#/admin/s/${S.an}/${x.nr}`) },
+          COLOANE_CSV.slice(0, 2).map(([, f]) => h('td', { class: 'nowrap' }, f(x))),
+          h('td', {}, `${TIPURI_DOC[x.tip]}${x.categorie !== 'document' ? ` · ${CATEGORII[x.categorie]}` : ''}`),
+          [4, 5, 6, 7, 8].map((i) => h('td', { 'data-et': COLOANE_CSV[i][0] }, COLOANE_CSV[i][1](x))))))))
+      : h('p', { class: 'gol' }, `Registrul pe ${S.an} este gol.`));
+}
+
+function paginaDocumentNou() {
   const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
-  const camp = (eticheta, input, cls = '') => h('label', { class: cls }, eticheta, input);
-
+  const fisiere = h('input', { type: 'file', name: 'fisiere', multiple: true });
   const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
     ev.preventDefault();
-    const fd = new FormData(form);
-    const campuri = Object.fromEntries([...fd.entries()].filter(([k]) => k !== 'fisiere'));
-    const noi = [...fisiere.files];
-    const mare = noi.find((f) => f.size > MAX_FISIER);
-    eroare.hidden = true;
-    if (campuri.tip === 'intrare' && !campuri.emitent.trim()) { eroare.textContent = 'Completează emitentul (de unde provine documentul).'; eroare.hidden = false; return; }
-    if (campuri.tip === 'iesire' && !campuri.destinatar.trim()) { eroare.textContent = 'Completează destinatarul.'; eroare.hidden = false; return; }
-    if (mare) { eroare.textContent = `„${mare.name}” depășește 25 MB. Scanează la o rezoluție mai mică.`; eroare.hidden = false; return; }
+    const c = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => k !== 'fisiere'));
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
-    btn.textContent = noi.length ? 'Se urcă fișierele și se salvează…' : 'Se salvează…';
     try {
-      const rez = editare
-        ? await stare.reg.editeaza(an, nr, campuri, noi)
-        : await stare.reg.adauga(campuri, noi);
-      stare.mesaj = editare ? 'Modificările au fost salvate.'
-        : `Document înregistrat cu nr. ${rez.intrare.nr} din ${fmtData(rez.intrare.data)}.`;
-      if (!stare.ani.includes(rez.an)) stare.ani = await stare.reg.ani();
-      mergi(`#/doc/${rez.an}/${rez.intrare.nr}`);
+      const r = await S.reg.adaugaDocument(c, [...fisiere.files]);
+      S.mesaj = `Document înregistrat cu nr. ${r.x.nr} din ${fmtData(r.x.data)}.`;
+      mergi(`#/admin/s/${r.an}/${r.x.nr}`);
     } catch (e) {
       btn.disabled = false;
-      btn.textContent = editare ? 'Salvează modificările' : 'Înregistrează';
       eroare.textContent = mesajEroare(e);
       eroare.hidden = false;
     }
   } },
-  h('fieldset', { class: 'tip' }, h('legend', {}, 'Tipul documentului'),
-    Object.entries(TIPURI).map(([val, t]) => h('label', { class: 'bifa' },
-      h('input', { type: 'radio', name: 'tip', value: val, checked: x.tip === val, required: true }), t))),
+  h('fieldset', {}, h('legend', {}, 'Tipul'), h('div', { class: 'optiuni' }, Object.entries(TIPURI_DOC).map(([v, t]) => h('label', { class: 'bifa' },
+    h('input', { type: 'radio', name: 'tip', value: v, checked: v === 'intrare', required: true }), t)))),
   h('div', { class: 'grila' },
-    camp('Emitent — de unde provine documentul', h('input', { name: 'emitent', value: v('emitent'), placeholder: 'ex. Ion Popescu, ap. 12 / E.ON / Primăria' })),
-    camp('Destinatar', h('input', { name: 'destinatar', value: v('destinatar') })),
-    camp('Nr. documentului (al emitentului)', h('input', { name: 'nrDocExtern', value: v('nrDocExtern') })),
-    camp('Data documentului', h('input', { type: 'date', name: 'dataDocExtern', value: v('dataDocExtern') })),
-    camp('Conținutul pe scurt *', h('textarea', { name: 'continut', required: true, rows: 3, maxlength: 2000 }, v('continut')), 'lat'),
-    camp('Repartizat către', h('input', { name: 'repartizat', value: v('repartizat'), list: 'compartimente' })),
-    camp('Termen de rezolvare', h('input', { type: 'date', name: 'termen', value: v('termen') })),
-    camp('Conexat la nr. (document legat)', h('input', { name: 'conexat', value: v('conexat'), placeholder: 'ex. 12/05.10.2026' })),
-    camp('Indicativ dosar', h('input', { name: 'dosar', value: v('dosar') })),
-    camp('Data expedierii', h('input', { type: 'date', name: 'dataExpedierii', value: v('dataExpedierii') })),
-    camp('Observații', h('textarea', { name: 'observatii', rows: 2, maxlength: 2000 }, v('observatii')), 'lat'),
-    camp(editare && (x.fisiere || []).length ? `Adaugă fișiere (are deja ${x.fisiere.length})` : 'Scan / fișiere (PDF, imagini — max. 25 MB fiecare)', fisiere, 'lat')),
-  h('datalist', { id: 'compartimente' }, compartimente.map((c) => h('option', { value: c }))),
+    h('label', {}, 'Emitent (de unde provine)', h('input', { name: 'emitent', placeholder: 'ex. Primăria Cluj-Napoca, E.ON' })),
+    h('label', {}, 'Destinatar', h('input', { name: 'destinatar' })),
+    h('label', {}, 'Nr. documentului emitentului', h('input', { name: 'nrDocExtern' })),
+    h('label', {}, 'Conexat la nr. (ex. 12/2026)', h('input', { name: 'conexat' })),
+    h('label', { class: 'lat' }, 'Conținutul pe scurt *', h('textarea', { name: 'continut', rows: 3, required: true, maxlength: 2000 }))),
+  h('label', {}, 'Scan / fișiere', fisiere),
   eroare,
   h('div', { class: 'actiuni' },
-    h('button', { type: 'submit', class: 'principal' }, editare ? 'Salvează modificările' : 'Înregistrează'),
-    h('a', { href: editare ? `#/doc/${an}/${nr}` : '#/registru', class: 'buton' }, 'Renunță')));
-
-  afiseaza(activ,
-    h('h2', {}, editare ? `Editare nr. ${nr}/${fmtData(x.data)}` : 'Înregistrare nouă'),
-    !editare && h('p', { class: 'slab' }, 'Numărul și data de înregistrare se dau automat la salvare.'),
-    form);
+    h('button', { type: 'submit', class: 'principal' }, 'Înregistrează documentul'),
+    h('a', { href: '#/admin/registru', class: 'buton' }, 'Renunță')));
+  afiseaza('document-nou', h('h1', {}, 'Înregistrează un document'), h('p', { class: 'slab' }, 'Pentru corespondență care nu e sesizare: adrese de la primărie, furnizori, notificări trimise etc.'), form);
 }
 
-// ---------- setări ----------
+// ---------- utilizatori ----------
 
-function paginaSetari() {
-  const cfg = stare.reg.config;
-  const poateScrie = stare.info?.permissions?.push;
-  const mesaj = h('p', { class: 'eroare', role: 'alert', hidden: true });
-  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
-    ev.preventDefault();
-    const fd = new FormData(form);
-    const nou = {
-      ...cfg,
-      asociatie: { nume: fd.get('nume').trim(), adresa: fd.get('adresa').trim(), cif: fd.get('cif').trim() },
-      compartimente: fd.get('compartimente').split('\n').map((s) => s.trim()).filter(Boolean),
-    };
-    const btn = form.querySelector('button');
-    btn.disabled = true;
-    try {
-      await stare.reg.salveazaConfig(nou);
-      stare.mesaj = 'Setările au fost salvate.';
-      paginaSetari();
-    } catch (e) {
-      btn.disabled = false;
-      mesaj.textContent = mesajEroare(e);
-      mesaj.hidden = false;
-    }
-  } },
-  h('fieldset', { disabled: !poateScrie },
-    h('div', { class: 'grila' },
-      h('label', { class: 'lat' }, 'Denumirea asociației', h('input', { name: 'nume', required: true, value: cfg.asociatie.nume })),
-      h('label', {}, 'Adresa', h('input', { name: 'adresa', value: cfg.asociatie.adresa })),
-      h('label', {}, 'CIF', h('input', { name: 'cif', value: cfg.asociatie.cif })),
-      h('label', { class: 'lat' }, 'Compartimente / persoane (câte unul pe rând — apar la „Repartizat către”)',
-        h('textarea', { name: 'compartimente', rows: 6 }, (cfg.compartimente || []).join('\n')))),
-    mesaj,
-    h('button', { type: 'submit', class: 'principal' }, 'Salvează setările')));
-
-  afiseaza('setari',
-    h('h2', {}, 'Setări'),
-    form,
-    h('div', { class: 'card' },
-      h('h3', {}, 'Conexiune'),
-      h('dl', { class: 'detalii' },
-        h('dt', {}, 'Utilizator'), h('dd', {}, stare.reg.utilizator),
-        h('dt', {}, 'Repo de date'), h('dd', {}, h('a', { href: `https://github.com/${stare.reg.gh.repo}`, target: '_blank', rel: 'noopener' }, stare.reg.gh.repo)),
-        h('dt', {}, 'Drepturi'), h('dd', {}, poateScrie ? 'citire și scriere' : 'doar citire'))));
+async function paginaUtilizatori() {
+  seIncarca('utilizatori');
+  try { S.conturi = await Conturi.incarca(API, S.token); } catch (e) { return eroarePagina('utilizatori', e); }
+  const bilet = h('div');
+  const actiune = (fn) => async (ev) => {
+    const el = ev.currentTarget;
+    el.disabled = true;
+    try { await fn(); } catch (e) { alert(mesajEroare(e)); } finally { el.disabled = false; }
+  };
+  const randuri = S.conturi.utilizatori.map((c) => {
+    const ap = h('select', { 'aria-label': `Apartament ${c.u}`, onchange: actiune(async () => {
+      await S.conturi.seteazaApartament(S.token, c.u, ap.value ? Number(ap.value) : null);
+    }) }, h('option', { value: '' }, '—'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1, selected: c.apartament === i + 1 }, `Ap. ${i + 1}`)));
+    return h('li', { class: 'rand-utilizator' },
+      h('div', {}, h('strong', {}, rol(c.rol)?.nume || c.rol), h('span', { class: 'slab cod' }, c.u)),
+      h('label', { class: 'inline' }, 'Apartament', ap),
+      h('span', { class: `eticheta ${c.temporara ? 'termen-aproape' : 'stare-raspuns_trimis'}` }, c.temporara ? 'parolă temporară' : 'parolă schimbată'),
+      c.u !== S.cont.u && h('button', { onclick: actiune(async () => {
+        if (!confirm(`Resetezi parola pentru ${c.u}? Parola veche nu va mai funcționa.`)) return;
+        const parola = await S.conturi.reseteaza(S.token, c.u);
+        bilet.replaceChildren(h('div', { class: 'card' },
+          h('p', { class: 'avertizare' }, `Parolă temporară nouă pentru ${c.u}. Se afișează o singură dată.`),
+          bilete([{ u: c.u, rol: c.rol, parola }]),
+          h('button', { class: 'principal', onclick: tiparesteBilete }, 'Tipărește biletul')));
+        window.scrollTo(0, 0);
+      }) }, 'Resetează parola'));
+  });
+  afiseaza('utilizatori',
+    h('h1', {}, 'Utilizatori'),
+    h('p', { class: 'slab' }, 'Fiecare rol se atribuie unui apartament (nu unei persoane). Apartamentul apare lângă rol în aplicație și pe pagina publică.'),
+    bilet,
+    h('ul', { class: 'lista-utilizatori card' }, randuri));
 }
 
 // ---------- rutare ----------
 
 async function ruta() {
-  if (!stare.reg) return ecranConectare();
-  const [cale, query] = location.hash.replace(/^#/, '').split('?');
+  document.getElementById('meniu')?.classList.remove('deschis');
+  const [cale] = location.hash.replace(/^#/, '').split('?');
   const p = cale.split('/').filter(Boolean);
-  const q = new URLSearchParams(query || '');
-  if (p[0] === 'nou') return paginaFormular({ raspuns: q.get('raspuns') });
-  if (p[0] === 'doc' && p[3] === 'editare') return paginaFormular({ an: Number(p[1]), nr: Number(p[2]) });
-  if (p[0] === 'doc') return paginaDocument(Number(p[1]), Number(p[2]));
-  if (p[0] === 'setari') return paginaSetari();
-  return paginaRegistru();
+
+  if (p[0] !== 'admin') {
+    if (p[0] === 'cum') return paginaCum();
+    if (p[0] === 'p' && p[2]) return paginaPublicaDetaliu(Number(p[1]), Number(p[2]));
+    return paginaPublica();
+  }
+  if (!conectat()) return ecranLogin();
+  if (S.cont.temporara) return ecranParola(true);
+  switch (p[1]) {
+    case 'sesizare-noua': return poateInregistra() ? formularSesizare() : paginaAdmin();
+    case 'document-nou': return poateInregistra() ? paginaDocumentNou() : paginaAdmin();
+    case 's': return paginaAdminDetaliu(Number(p[2]), Number(p[3]));
+    case 'registru': return paginaRegistru();
+    case 'utilizatori': return ePresedinte() ? paginaUtilizatori() : paginaAdmin();
+    case 'parola': return ecranParola(false);
+    default: return paginaAdmin();
+  }
 }
 
 window.addEventListener('hashchange', ruta);
 
 (async function start() {
   const s = citesteSesiune();
-  if (!s) return ecranConectare();
-  try {
-    await conecteaza(s);
-    ruta();
-  } catch (e) {
-    ecranConectare(mesajEroare(e));
+  if (s) {
+    try {
+      S.conturi = await Conturi.incarca(API, s.token);
+      const cont = S.conturi?.gaseste(s.u);
+      if (cont) await intra(cont, s.token);
+      else stergeSesiune();
+    } catch {
+      stergeSesiune();
+      Object.assign(S, { cont: null, token: null, reg: null });
+    }
   }
+  if (!S.cont || !location.hash.startsWith('#/admin')) ruta();
 })();
