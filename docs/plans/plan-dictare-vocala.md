@@ -1,6 +1,6 @@
 # Plan — Voice dictation with commands for the minutes (proces-verbal)
 
-Status: **built 2026-10-10** (local, not yet pushed). Builds on [plan-sedinte-passkey.md](plan-sedinte-passkey.md)
+Status: **v2 built 2026-10-10** — big text editor (desktop-first) replaced the per-field form; see "v2" below.
 (phase 3, step 3 "Minutes"): it only adds a faster way to fill the same PV structure. Nothing here changes
 signing, storage or the lifecycle. Interactive mockup: see the artifact linked from the session that wrote this plan.
 
@@ -71,3 +71,22 @@ Normalise: lowercase, strip diacritics, collapse spaces; a leading command word 
 ## 6. Open questions
 1. Hold-to-talk on phones vs tap-to-toggle everywhere? (mockup has both; pick after trying it)
 2. Should `consemnează` also be allowed outside an agenda item (e.g. a "Diverse" bucket)?
+
+## v2 (2026-10-10, after the first live test)
+Feedback: the per-field form was cramped (the drafter will use a PC), and Chrome on Android repeated every partial
+phrase ("Că", "Că vom", "Că vom discuta"…) because it marks each partial as final.
+- **Editor:** one large textarea in a plain-text format (`N. Title`, discussion lines, `Decizie:`, `Vot:`,
+  `Responsabil:`, `Termen:`), converted to the signed structure on save (`js/pv-text.js`); errors (decision without a
+  vote, unknown role, bad date) block saving. Sidebar: meeting data, agenda + each point's decisions (click to jump),
+  command help, observations. "Previzualizare" shows the parsed PV.
+- **Commands:** free text → at the cursor; `consemnează [text]` → end of the point's discussion, above its decisions
+  (alone: moves the cursor there); `decizie [text]` → new `Decizie:` line, text optional; `vot` / `responsabil` /
+  `termen` → on the decision under the cursor, replacing an existing line; `decizia N / următoare / anterioară`;
+  `punctul N / următor`; `punct nou …`; `rând nou`; `șterge ultima`.
+- **Dedupe:** `js/dictare.js` merges finals that extend each other and emits one utterance after a 1.3 s pause
+  (or on stop); late results after stop are ignored.
+- **Convocation:** agenda prefilled with sesizări on the monthly list not yet on another meeting's agenda
+  (`sedinta.sesizari` = ["nr/an"]), checkboxes + manual points + reorder.
+- **Closing:** all signatures → state `semnata`; the president presses "Închide și afișează la avizier" → `inchisaLa`,
+  state `afisata`, published, fully locked (`Sedinte.modifica` refuses). Legacy meetings without `inchidereManuala`
+  count as closed once fully signed (they were already auto-published).

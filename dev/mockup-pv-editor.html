@@ -1,0 +1,667 @@
+<meta charset="utf-8">
+<title>Ședință comitet — editor</title>
+<style>
+/* Layout: designul „Bloc” al aplicației. Desktop: editor mare (foaie) + coloană laterală lipită.
+   Telefon: o singură coloană, coloana laterală sub editor. */
+:root {
+  --verde: #14532d; --verde-2: #166534; --verde-text: #eaf5ee;
+  --bg: #eef2ef; --card: #ffffff; --text: #14281f; --muted: #5b6b62; --border: #dbe3dd;
+  --accent: #15803d; --accent-text: #ffffff;
+  --danger: #b42318; --err-bg: #fdecea;
+  --amber-bg: #fde68a; --amber: #713f12;
+  --verde-bg: #bbf7d0; --verde-fg: #14532d;
+  --albastru-bg: #dbeafe; --albastru: #1e3a8a;
+  --gri-bg: #e7ece8; --gri: #3f4f46;
+  --foaie: #fffefb;
+  --radius: 14px; --radius-lg: 18px;
+  --umbra: 0 1px 2px rgba(20,40,31,.06), 0 4px 14px rgba(20,40,31,.06);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --verde: #0b3d22; --verde-2: #0f4d2b; --verde-text: #dff3e6;
+  --bg: #0e1712; --card: #17231c; --text: #e4efe8; --muted: #9db0a5; --border: #2a3a31;
+  --accent: #22a157; --accent-text: #06140b; --danger: #f2837a; --err-bg: #3b1714;
+  --amber-bg: #4a3a0e; --amber: #fcd98a; --verde-bg: #164a2b; --verde-fg: #a7f0c2;
+  --albastru-bg: #1c2f55; --albastru: #bcd3ff; --gri-bg: #223029; --gri: #c3d2c9;
+  --foaie: #131d17; --umbra: none; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --verde: #0b3d22; --verde-2: #0f4d2b; --verde-text: #dff3e6;
+  --bg: #0e1712; --card: #17231c; --text: #e4efe8; --muted: #9db0a5; --border: #2a3a31;
+  --accent: #22a157; --accent-text: #06140b; --danger: #f2837a; --err-bg: #3b1714;
+  --amber-bg: #4a3a0e; --amber: #fcd98a; --verde-bg: #164a2b; --verde-fg: #a7f0c2;
+  --albastru-bg: #1c2f55; --albastru: #bcd3ff; --gri-bg: #223029; --gri: #c3d2c9;
+  --foaie: #131d17; --umbra: none; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); }
+button, input, textarea, select { font: inherit; color: var(--text); }
+button { cursor: pointer; border: 1.5px solid var(--border); background: var(--card); border-radius: 12px; padding: .5rem .8rem; font-weight: 600; display: inline-flex; align-items: center; gap: .4rem; }
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.principal { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; }
+input, select { border: 1.5px solid var(--border); background: var(--card); border-radius: 12px; padding: .5rem .7rem; min-width: 0; }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+.ic { width: 1.15em; height: 1.15em; flex: none; }
+
+header { background: var(--verde); color: var(--verde-text); padding: 14px 16px 44px; }
+.cap { max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; justify-content: space-between; }
+.cap small { opacity: .8; font-size: .78rem; letter-spacing: .05em; text-transform: uppercase; display: block; }
+.cap h1 { margin: 2px 0 0; font-size: 1.55rem; font-weight: 650; }
+.taburi { display: flex; gap: 4px; background: rgba(255,255,255,.12); padding: 4px; border-radius: 999px; }
+.taburi button { border: 0; background: transparent; color: var(--verde-text); border-radius: 999px; padding: .4rem 1rem; }
+.taburi button[aria-selected="true"] { background: var(--verde-text); color: var(--verde); }
+
+main { max-width: 1240px; margin: -28px auto 0; padding: 0 16px 48px; }
+.card { background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--umbra); padding: 16px 18px; }
+.card h2 { margin: 0 0 10px; font-size: 1rem; }
+.slab { color: var(--muted); }
+.mic { font-size: .85rem; }
+.eticheta { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: .76rem; font-weight: 650; background: var(--gri-bg); color: var(--gri); white-space: nowrap; }
+.e-verde { background: var(--verde-bg); color: var(--verde-fg); }
+.e-amber { background: var(--amber-bg); color: var(--amber); }
+.e-albastru { background: var(--albastru-bg); color: var(--albastru); }
+.nota { background: var(--albastru-bg); color: var(--albastru); border-radius: var(--radius); padding: 10px 14px; font-size: .9rem; margin-bottom: 14px; }
+
+/* ---------- convocare ---------- */
+.conv { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .conv { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; } }
+.campuri { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.campuri label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); font-weight: 500; }
+.sursa { display: grid; gap: 6px; margin-top: 6px; }
+.sursa label { display: flex; gap: 10px; align-items: flex-start; background: var(--bg); border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.sursa input { margin-top: 3px; width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+.sursa .nr { font-family: var(--mono); font-size: .8rem; color: var(--accent); white-space: nowrap; }
+.adauga { display: flex; gap: 8px; margin-top: 10px; }
+.adauga input { flex: 1; }
+ol.ordine { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; counter-reset: p; }
+ol.ordine li { counter-increment: p; display: flex; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; }
+ol.ordine li::before { content: counter(p) "."; font-weight: 700; color: var(--accent); min-width: 1.4em; font-variant-numeric: tabular-nums; }
+ol.ordine li .t { flex: 1; min-width: 0; }
+ol.ordine li .t small { display: block; color: var(--muted); }
+ol.ordine li button { padding: .2rem .45rem; min-width: 0; border-radius: 8px; font-size: .8rem; }
+
+/* ---------- proces-verbal ---------- */
+.flux { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
+.pas { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--card); box-shadow: var(--umbra); font-size: .85rem; color: var(--muted); }
+.pas b { display: inline-grid; place-items: center; width: 1.4em; height: 1.4em; border-radius: 50%; background: var(--gri-bg); color: var(--gri); font-size: .78rem; }
+.pas.activ { color: var(--text); font-weight: 650; }
+.pas.activ b { background: var(--accent); color: var(--accent-text); }
+.pas.gata b { background: var(--verde-bg); color: var(--verde-fg); }
+.sageata { color: var(--muted); }
+
+.pv { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) { .pv { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } .lateral { position: sticky; top: 12px; } }
+
+.editor { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.unelte { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.unelte .sep { flex: 1; }
+.mic-btn { width: 46px; height: 46px; padding: 0; border-radius: 50%; justify-content: center; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.mic-btn.asculta { background: var(--danger); border-color: var(--danger); color: #fff; animation: puls 1.1s infinite; }
+@keyframes puls { from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 50%, transparent); } to { box-shadow: 0 0 0 12px transparent; } }
+.unelte .mici button { padding: .35rem .6rem; font-size: .85rem; }
+.aud { display: flex; gap: 8px; align-items: center; padding: 8px 14px; font-size: .9rem; background: var(--bg); border-bottom: 1px solid var(--border); min-height: 40px; }
+.aud .eticheta { flex: none; }
+.aud .text { flex: 1; min-width: 0; color: var(--muted); font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aud .text.ok { color: var(--verde-fg); font-style: normal; }
+.aud .text.err { color: var(--danger); font-style: normal; }
+.vederi { display: flex; gap: 2px; }
+.vederi button { border-radius: 10px; padding: .35rem .7rem; font-size: .85rem; }
+.vederi button[aria-pressed="true"] { background: var(--verde-bg); color: var(--verde-fg); border-color: transparent; }
+textarea#text { display: block; width: 100%; min-height: 62vh; border: 0; border-radius: 0; resize: vertical; padding: 22px 26px;
+  background: var(--foaie); font: 17px/1.75 var(--font); }
+textarea#text:focus { box-shadow: none; }
+textarea#text[readonly] { color: var(--muted); }
+.previz { padding: 20px 24px; min-height: 62vh; background: var(--foaie); }
+.previz h3 { margin: 18px 0 6px; font-size: 1.05rem; }
+.previz h3:first-child { margin-top: 0; }
+.previz p { margin: 0 0 8px; white-space: pre-wrap; }
+.decizie { background: var(--bg); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; display: grid; gap: 6px; }
+.decizie .campuri-d { display: flex; flex-wrap: wrap; gap: 6px; }
+.lipsa { color: var(--danger); font-size: .85rem; }
+
+.lateral { display: grid; gap: 14px; }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .9rem; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.salt { display: grid; gap: 4px; }
+.salt button { justify-content: flex-start; text-align: left; font-weight: 500; border-color: transparent; background: var(--bg); padding: .45rem .7rem; }
+.salt button.curent { background: var(--verde-bg); color: var(--verde-fg); font-weight: 650; }
+.salt button.dec { margin-left: 18px; font-size: .84rem; padding: .3rem .6rem; background: transparent; border: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.salt button.dec.curent { background: var(--verde-bg); border-color: transparent; }
+table.cmd { width: 100%; border-collapse: collapse; font-size: .84rem; }
+table.cmd td { padding: 5px 4px; border-top: 1px solid var(--border); vertical-align: top; }
+table.cmd td:first-child { font-family: var(--mono); color: var(--accent); white-space: nowrap; font-size: .78rem; }
+.simulare { display: grid; gap: 8px; }
+.simulare .rand { display: flex; gap: 6px; }
+.simulare input { flex: 1; }
+.exemple { display: flex; flex-wrap: wrap; gap: 6px; }
+.exemple button { border-style: dashed; font-weight: 500; font-size: .8rem; padding: .25rem .6rem; color: var(--muted); }
+.semnaturi { display: grid; gap: 6px; }
+.semnaturi div { display: flex; justify-content: space-between; gap: 8px; font-size: .9rem; }
+@media (prefers-reduced-motion: reduce) { .mic-btn.asculta { animation: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+</svg>
+
+<header>
+  <div class="cap">
+    <div><small>Ședințe comitet · mockup</small><h1 id="titlu">Ședința 4/2026</h1></div>
+    <div class="taburi" role="tablist">
+      <button role="tab" id="tab-conv" aria-selected="true">1. Convocare</button>
+      <button role="tab" id="tab-pv" aria-selected="false">2. Proces-verbal</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ================= CONVOCARE ================= -->
+  <section id="v-conv">
+    <div class="nota">Mockup: nimic nu se salvează. Sesizările de mai jos sunt exemple, în aplicație vin cele trecute „pe lista ședinței lunare”.</div>
+    <div class="conv">
+      <div class="card">
+        <h2>Convoacă ședința</h2>
+        <div class="campuri">
+          <label>Data <input id="c-data" type="date" value="2026-10-20"></label>
+          <label>Ora <input id="c-ora" type="time" value="19:00"></label>
+          <label>Link Zoom <input id="c-zoom" type="text" value="https://zoom.us/j/…"></label>
+        </div>
+        <h2 style="margin-top:18px">Propuse din sesizări</h2>
+        <p class="slab mic" style="margin:0">Sesizările fără soluție și propunerile de proiect (art. 23–24), încă nediscutate. Debifează ce nu vrei pe ordinea de zi.</p>
+        <div class="sursa" id="sursa"></div>
+        <h2 style="margin-top:18px">Alte puncte</h2>
+        <div class="adauga"><input id="punct-nou" type="text" placeholder="ex.: Bugetul pentru curățenia de primăvară"><button id="adauga" type="button">Adaugă</button></div>
+      </div>
+      <div class="card">
+        <h2>Ordinea de zi</h2>
+        <ol class="ordine" id="ordine"></ol>
+        <p class="slab mic" id="avert-zile"></p>
+        <button class="principal" id="convoaca" type="button">Convoacă ședința</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PROCES-VERBAL ================= -->
+  <section id="v-pv" hidden>
+    <div class="flux" id="flux"></div>
+    <div class="pv">
+      <div class="card editor">
+        <div class="unelte">
+          <button class="mic-btn" id="mic" type="button" aria-label="Dictează" aria-pressed="false"><svg class="ic"><use href="#i-mic"/></svg></button>
+          <div class="mici">
+            <button type="button" data-ins="decizie">+ Decizie</button>
+            <button type="button" data-ins="vot">+ Vot</button>
+            <button type="button" data-ins="responsabil">+ Responsabil</button>
+            <button type="button" data-ins="termen">+ Termen</button>
+          </div>
+          <button type="button" id="undo" title="Anulează ultima modificare dictată"><svg class="ic"><use href="#i-undo"/></svg></button>
+          <span class="sep"></span>
+          <div class="vederi">
+            <button type="button" id="vez-edit" aria-pressed="true">Editează</button>
+            <button type="button" id="vez-prev" aria-pressed="false">Previzualizare</button>
+          </div>
+        </div>
+        <div class="aud"><span class="eticheta" id="aud-et">Microfon oprit</span><span class="text" id="aud">Apasă microfonul și vorbește, sau scrie direct în foaie.</span></div>
+        <textarea id="text" spellcheck="true" aria-label="Textul procesului-verbal"></textarea>
+        <div class="previz" id="previz" hidden></div>
+      </div>
+
+      <aside class="lateral">
+        <div class="card">
+          <h2>Ședința</h2>
+          <dl>
+            <dt>Data</dt><dd id="l-data"></dd>
+            <dt>Prezenți</dt><dd>5 din 7 membri <span class="eticheta e-verde">cvorum</span></dd>
+            <dt>Semnează</dt><dd>5 membri + cenzor</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <h2>Ordinea de zi</h2>
+          <div class="salt" id="salt"></div>
+        </div>
+        <div class="card">
+          <h2>Încearcă vocea aici</h2>
+          <div class="simulare">
+            <p class="slab mic" style="margin:0">În pagina asta microfonul e blocat. Scrie ce ai spune sau atinge un exemplu.</p>
+            <div class="rand"><input id="sim" type="text" placeholder="ex.: decizie se aprobă oferta"><button id="sim-ok" type="button">Spune</button></div>
+            <div class="exemple" id="exemple"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Comenzi vocale</h2>
+          <table class="cmd">
+            <tr><td>(orice text)</td><td>se scrie unde e cursorul</td></tr>
+            <tr><td>consemnează [text]</td><td>la discuțiile punctului curent, deasupra deciziilor; singur, mută acolo cursorul</td></tr>
+            <tr><td>decizie [text]</td><td>rând nou „Decizie:”, textul e opțional, continui după el</td></tr>
+            <tr><td>decizia 2 / decizia următoare / decizia anterioară</td><td>revii la o decizie a punctului curent</td></tr>
+            <tr><td>vot 4 pentru 1 împotrivă 0 abțineri</td><td>sau „vot unanim”; la decizia curentă, înlocuiește votul vechi</td></tr>
+            <tr><td>responsabil …</td><td>ex. „responsabil curățenie”</td></tr>
+            <tr><td>termen …</td><td>„30 octombrie”, „peste 10 zile”</td></tr>
+            <tr><td>punctul 2 / punctul următor</td><td>mută cursorul</td></tr>
+            <tr><td>punct nou …</td><td>punct care nu era pe ordinea de zi</td></tr>
+            <tr><td>rând nou</td><td>trece pe rândul următor</td></tr>
+            <tr><td>șterge ultima</td><td>anulează ultima dictare</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Semnături</h2>
+          <div class="semnaturi" id="semn"></div>
+          <p class="slab mic" id="semn-nota"></p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button type="button" id="sim-semn">Simulează: semnează toți</button>
+            <button type="button" class="principal" id="inchide" disabled><svg class="ic"><use href="#i-lock"/></svg>Închide și afișează la avizier</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<script>
+// ---------------- date de exemplu ----------------
+const PREZENTI = 5;
+const SEMNATARI = ['Președinte', 'Resp. curățenie și gunoi', 'Resp. instalații de apă', 'Resp. restanțieri', 'Resp. fațade', 'Cenzor'];
+const ROLURI = [
+  ['presedinte','Președinte'],['r01','Resp. cartea de imobil'],['r02','Resp. instalații de apă'],['r03','Resp. instalații electrice'],
+  ['r04','Resp. instalații de gaz'],['r05','Resp. interfon'],['r06','Resp. camere de supraveghere'],['r07','Resp. curățenie și gunoi'],
+  ['r08','Resp. spații verzi'],['r09','Resp. boxe și spații comune'],['r10','Resp. convocări și corespondență'],['r11','Resp. acoperiș și structură'],
+  ['r12','Resp. fațade'],['r13','Resp. restanțieri'],['cenzor','Cenzor'],['administrator','Administrator']].map(([id, nume]) => ({ id, nume }));
+const SESIZARI = [
+  { nr: '12/2026', dom: 'Lift', txt: 'Liftul se oprește între etajele 3 și 4', pe: true },
+  { nr: '15/2026', dom: 'Propunere de proiect', txt: 'Montarea de camere la intrarea în subsol', pe: true },
+  { nr: '17/2026', dom: 'Curățenie', txt: 'Gunoiul de la scara 2 nu e ridicat sâmbăta', pe: true },
+];
+let manuale = ['Situația restanțelor la întreținere'];
+let alese = new Set(SESIZARI.map((s) => s.nr));
+let ordine = []; // [{ titlu, sub }]
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...copii) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (v == null || v === false) continue; if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); }
+  for (const c of copii.flat()) if (c != null) e.append(c);
+  return e;
+};
+const fmt = (iso) => iso.split('-').reverse().join('.');
+
+// ---------------- taburi ----------------
+function tab(care) {
+  $('tab-conv').setAttribute('aria-selected', care === 'conv');
+  $('tab-pv').setAttribute('aria-selected', care === 'pv');
+  $('v-conv').hidden = care !== 'conv';
+  $('v-pv').hidden = care !== 'pv';
+  if (care === 'pv') pregatestePV();
+}
+$('tab-conv').onclick = () => tab('conv');
+$('tab-pv').onclick = () => tab('pv');
+
+// ---------------- convocare ----------------
+function construiesteOrdinea() {
+  const dinSesizari = SESIZARI.filter((s) => alese.has(s.nr)).map((s) => ({ titlu: `${s.txt} (sesizarea nr. ${s.nr})`, sub: s.dom, cheie: s.nr }));
+  const pastrate = ordine.filter((o) => dinSesizari.some((d) => d.cheie === o.cheie) || (!o.cheie && manuale.includes(o.titlu)));
+  const noi = [...dinSesizari, ...manuale.map((t) => ({ titlu: t, sub: 'adăugat de tine' }))].filter((x) => !pastrate.some((p) => p.titlu === x.titlu));
+  ordine = [...pastrate, ...noi];
+}
+function deseneazaConv() {
+  $('sursa').replaceChildren(...SESIZARI.map((s) => el('label', {},
+    el('input', { type: 'checkbox', checked: alese.has(s.nr) ? '' : null, onchange: (e) => { e.target.checked ? alese.add(s.nr) : alese.delete(s.nr); construiesteOrdinea(); deseneazaConv(); } }),
+    el('span', {}, el('span', { class: 'nr' }, `Nr. ${s.nr} · ${s.dom}`), el('br'), s.txt))));
+  $('ordine').replaceChildren(...ordine.map((o, i) => el('li', {},
+    el('span', { class: 't' }, o.titlu, el('small', {}, o.sub)),
+    el('button', { type: 'button', title: 'Mută sus', disabled: i === 0 ? '' : null, onclick: () => { [ordine[i-1], ordine[i]] = [ordine[i], ordine[i-1]]; deseneazaConv(); } }, '↑'),
+    el('button', { type: 'button', title: 'Mută jos', disabled: i === ordine.length - 1 ? '' : null, onclick: () => { [ordine[i+1], ordine[i]] = [ordine[i], ordine[i+1]]; deseneazaConv(); } }, '↓'),
+    el('button', { type: 'button', title: 'Scoate', onclick: () => { if (o.cheie) alese.delete(o.cheie); else manuale = manuale.filter((t) => t !== o.titlu); ordine.splice(i, 1); deseneazaConv(); } }, '✕'))));
+  const zile = Math.round((new Date($('c-data').value) - new Date('2026-10-10')) / 86400000);
+  $('avert-zile').textContent = zile < 5 ? `Atenție: mai sunt ${zile} zile până la ședință; legea cere convocarea cu cel puțin 5 zile înainte.` : `Convocare cu ${zile} zile înainte (minimum 5, art. 55).`;
+}
+$('adauga').onclick = () => { const t = $('punct-nou').value.trim(); if (!t) return; manuale.push(t); $('punct-nou').value = ''; construiesteOrdinea(); deseneazaConv(); };
+$('punct-nou').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('adauga').click(); });
+$('c-data').onchange = deseneazaConv;
+$('convoaca').onclick = () => tab('pv');
+
+// ---------------- proces-verbal: text ----------------
+const ta = $('text');
+let atins = false;      // a scris cineva în PV?
+let stare = 'redactare'; // redactare | semnare | inchis
+let semnati = new Set();
+const istoric = [];
+
+function sablon() {
+  return ordine.map((o, i) => `${i + 1}. ${o.titlu}\n`).join('\n');
+}
+function pregatestePV() {
+  $('l-data').textContent = `${fmt($('c-data').value)}, ora ${$('c-ora').value}`;
+  if (!atins) { ta.value = sablon(); }
+  deseneazaSalt(); deseneazaFlux(); deseneazaSemn();
+}
+
+// Secțiunile = rândurile „N. titlu”.
+function sectiuni(t = ta.value) {
+  const re = /^(\d+)\.\s+(.+)$/gm; const s = []; let m;
+  while ((m = re.exec(t))) s.push({ nr: +m[1], titlu: m[2], start: m.index, corp: m.index + m[0].length });
+  s.forEach((x, i) => { x.end = i + 1 < s.length ? s[i + 1].start : t.length; });
+  return s;
+}
+const sectiuneaLa = (poz) => { const s = sectiuni(); let i = 0; s.forEach((x, k) => { if (poz >= x.start) i = k; }); return { s, i }; };
+// Sfârșitul conținutului secțiunii (fără rândurile goale de la final).
+const sfarsit = (x) => { let e = x.end; while (e > x.corp && /\s/.test(ta.value[e - 1])) e--; return e; };
+// Sfârșitul discuțiilor = înaintea primului rând „Decizie:” din secțiune.
+function sfarsitDiscutii(x) {
+  const corp = ta.value.slice(x.corp, x.end);
+  const m = corp.match(/^Decizie:/m);
+  if (!m) return sfarsit(x);
+  let e = x.corp + m.index; while (e > x.corp && /\s/.test(ta.value[e - 1])) e--; return e;
+}
+
+// Deciziile unei secțiuni: de la un rând „Decizie:” până la următorul (sau sfârșitul secțiunii).
+function decizii(x) {
+  const corp = ta.value.slice(x.corp, x.end); const re = /^Decizie:.*$/gm; const ds = []; let m;
+  while ((m = re.exec(corp))) ds.push({ start: x.corp + m.index, text: m[0].replace(/^Decizie:\s*/, '') });
+  ds.forEach((d, i) => { let e = i + 1 < ds.length ? ds[i + 1].start : x.end; while (e > d.start && /\s/.test(ta.value[e - 1])) e--; d.end = e; });
+  return ds;
+}
+// Decizia pe care e cursorul; din discuții (deasupra deciziilor) se ia ultima decizie.
+function decizieCurenta(x, poz = ta.selectionStart) {
+  const ds = decizii(x); let k = -1;
+  ds.forEach((d, i) => { if (poz >= d.start) k = i; });
+  if (k < 0 && ds.length) k = ds.length - 1;
+  return { ds, k };
+}
+// Pune / înlocuiește rândul „Vot:”, „Responsabil:” sau „Termen:” al deciziei curente.
+function puneCamp(x, eticheta, valoare) {
+  const { ds, k } = decizieCurenta(x);
+  if (k < 0) return 'Spune întâi „decizie”, apoi votul, responsabilul sau termenul.';
+  const d = ds[k]; const bloc = ta.value.slice(d.start, d.end);
+  const m = bloc.match(new RegExp(`^${eticheta}:.*$`, 'm'));
+  const linie = `${eticheta}: ${valoare}`;
+  if (m) {
+    const a = d.start + m.index; ta.setRangeText(linie, a, a + m[0].length, 'end'); atins = true; ta.focus(); deseneazaSalt();
+  } else insereaza(d.end, rand(d.end, linie));
+  return null;
+}
+
+function salveazaIstoric() { istoric.push({ v: ta.value, c: ta.selectionStart }); if (istoric.length > 100) istoric.shift(); $('undo').disabled = false; }
+function insereaza(poz, text, cursorDupa = true) {
+  ta.setRangeText(text, poz, poz, 'end');
+  const c = poz + text.length;
+  if (cursorDupa) { ta.selectionStart = ta.selectionEnd = c; }
+  atins = true;
+  ta.focus();
+  const rand = ta.value.slice(0, c).split('\n').length; // derulează aproximativ la rând
+  ta.scrollTop = Math.max(0, (rand - 6) * 30);
+  deseneazaSalt();
+}
+const frazaDin = (s) => { s = s.trim().replace(/^[,;:.\s]+|[,;:\s]+$/g, ''); if (!s) return ''; s = s[0].toUpperCase() + s.slice(1); return /[.!?]$/.test(s) ? s : s + '.'; };
+const rand = (poz, text) => { const prev = ta.value[poz - 1]; return (poz === 0 || prev === '\n' ? '' : '\n') + text; };
+
+// ---------------- comenzi ----------------
+const NUM = { zero:0, niciuna:0, nimeni:0, unu:1, una:1, un:1, o:1, doi:2, doua:2, trei:3, patru:4, cinci:5, sase:6, sapte:7, opt:8, noua:9, zece:10 };
+const norm = (s) => [...s].map((c) => c.normalize('NFD').replace(/[̀-ͯ]/g, '') || c).join('').toLowerCase();
+const numar = (w) => (w == null ? null : /^\d+$/.test(w) ? +w : NUM[w] ?? null);
+const RE = /\b(consemneaza|noteaza|punct nou|punctul urmator|punctul (?:\d+|unu|doi|trei|patru|cinci|sase|sapte|opt|noua|zece)|decizia (?:\d+|unu|una|doi|doua|trei|patru|cinci|urmatoare|anterioara|precedenta)|decizie|hotarare|vot|responsabil|termen|rand nou|sterge ultima|anuleaza)\b/g;
+function parseaza(text) {
+  const n = norm(text); const g = [...n.matchAll(RE)]; const out = [];
+  const pre = text.slice(0, g.length ? g[0].index : text.length).trim();
+  if (pre) out.push({ tip: 'text', rest: pre, restN: norm(pre) });
+  g.forEach((m, i) => { const e = i + 1 < g.length ? g[i + 1].index : text.length; const s = m.index + m[0].length;
+    if (m[1].startsWith('decizia ')) { const w = m[1].slice(8); out.push({ tip: 'decizia', nr: numar(w === 'una' ? 'unu' : w), dir: w === 'urmatoare' ? 'urm' : 'ant' }); return; }
+    out.push({ tip: m[1], rest: text.slice(s, e).replace(/^[\s,:;.]+|[\s,;]+$/g, ''), restN: n.slice(s, e).replace(/^[\s,:;.]+|[\s,;]+$/g, '') }); });
+  return out;
+}
+function vot(restN) {
+  if (/unanim/.test(restN)) return [PREZENTI, 0, 0];
+  const ia = (re) => { const m = restN.match(re); return m ? numar(m[1]) : 0; };
+  const v = [ia(/(\w+)\s+pentru/), ia(/(\w+)\s+impotriva/), ia(/(\w+)\s+abtiner/)];
+  return v.some((x) => x == null) || v[0] + v[1] + v[2] === 0 ? null : v;
+}
+const LUNI = ['ianuarie','februarie','martie','aprilie','mai','iunie','iulie','august','septembrie','octombrie','noiembrie','decembrie'];
+function termen(restN) {
+  const b = new Date($('c-data').value); let m;
+  const f = (d) => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${d.getFullYear()}`;
+  if ((m = restN.match(/peste (\w+) (?:de )?(zile|saptamani)/))) { const k = numar(m[1]); if (k == null) return null; b.setDate(b.getDate() + k * (m[2][0] === 's' ? 7 : 1)); return f(b); }
+  if (/sfarsitul lunii/.test(restN)) return f(new Date(b.getFullYear(), b.getMonth() + 1, 0));
+  if ((m = restN.match(/(\d{1,2})\s*[./]\s*(\d{1,2})/))) return f(new Date(b.getFullYear(), +m[2] - 1, +m[1]));
+  if ((m = restN.match(/(\w+)\s+(ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie)/))) { const z = numar(m[1]); return z ? f(new Date(b.getFullYear(), LUNI.indexOf(m[2]), z)) : null; }
+  return null;
+}
+function rol(restN) {
+  const goale = new Set(['resp','responsabil','si','de','instalatii','spatii']);
+  const sp = restN.split(/\s+/).filter((w) => w.length >= 3 && !goale.has(w));
+  const sem = (a, b) => a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+  let best = null, sc = 0;
+  for (const r of ROLURI) { const c = norm(r.nume).split(/[\s.,]+/).filter((w) => w.length >= 3 && !goale.has(w)); const k = sp.filter((w) => c.some((x) => sem(w, x))).length; if (k > sc) { best = r.nume; sc = k; } }
+  return best;
+}
+
+function aplica(fraza) {
+  if (stare !== 'redactare') { aviz('err', 'Procesul-verbal e în semnare sau închis. Nu se mai poate dicta.'); return; }
+  const cmds = parseaza(fraza);
+  if (!cmds.length) return;
+  if (cmds.some((c) => c.tip === 'sterge ultima' || c.tip === 'anuleaza')) { anuleaza(); return; }
+  salveazaIstoric();
+  const facute = [], erori = [];
+  for (const c of cmds) {
+    const { s, i } = sectiuneaLa(ta.selectionStart);
+    const x = s[i];
+    switch (c.tip) {
+      case 'text': {
+        const p = ta.selectionStart; const prev = ta.value[p - 1];
+        // După un rând completat de vot / responsabil / termen, textul liber trece pe rând nou.
+        const randCurent = ta.value.slice(ta.value.lastIndexOf('\n', p - 1) + 1, p);
+        const dupaCamp = /^(Vot|Responsabil|Termen):\s*\S/.test(randCurent);
+        insereaza(p, (dupaCamp ? '\n' : p === 0 || prev === '\n' || prev === ' ' ? '' : ' ') + frazaDin(c.rest));
+        facute.push('Text scris la cursor'); break; }
+      case 'consemneaza': case 'noteaza': {
+        if (!x) { erori.push('Nu există niciun punct.'); break; }
+        const p = sfarsitDiscutii(x);
+        if (!c.rest) {
+          // „consemnează” singur: cursorul trece pe un rând nou la discuții, deasupra deciziilor.
+          insereaza(p, '\n');
+          facute.push(`Scrii la discuțiile punctului ${x.nr}, deasupra deciziilor`);
+          break;
+        }
+        insereaza(p, rand(p, frazaDin(c.rest)));
+        facute.push(`Consemnat la discuțiile punctului ${x.nr}`); break; }
+      case 'decizie': case 'hotarare': {
+        if (!x) { erori.push('Nu există niciun punct.'); break; }
+        const p = sfarsit(x);
+        insereaza(p, rand(p, c.rest ? `Decizie: ${frazaDin(c.rest)}` : 'Decizie: '));
+        facute.push(c.rest ? `Decizie adăugată la punctul ${x.nr}` : `Decizie nouă la punctul ${x.nr}: continuă să dictezi textul`); break; }
+      case 'vot': {
+        const v = vot(c.restN); if (!v) { erori.push('N-am înțeles votul („vot 4 pentru 1 împotrivă 0 abțineri”).'); break; }
+        const e = puneCamp(x, 'Vot', `${v[0]} pentru, ${v[1]} împotrivă, ${v[2]} abțineri.`); if (e) { erori.push(e); break; }
+        facute.push(`Vot ${v.join('–')} la decizia ${decizieCurenta(x).k + 1}`); if (v[0] + v[1] + v[2] > PREZENTI) erori.push(`Atenție: ${v[0]+v[1]+v[2]} voturi la ${PREZENTI} prezenți.`); break; }
+      case 'responsabil': {
+        const r = rol(c.restN); if (!r) { erori.push(`N-am găsit rolul „${c.rest}”.`); break; }
+        const e = puneCamp(x, 'Responsabil', `${r}.`); if (e) { erori.push(e); break; } facute.push(`Responsabil: ${r}`); break; }
+      case 'termen': {
+        const t = termen(c.restN); if (!t) { erori.push('N-am înțeles data.'); break; }
+        const e = puneCamp(x, 'Termen', `${t}.`); if (e) { erori.push(e); break; } facute.push(`Termen ${t}`); break; }
+      case 'decizia': {
+        const ds = decizii(x); const { k } = decizieCurenta(x);
+        const tinta = c.nr != null ? c.nr - 1 : c.dir === 'urm' ? k + 1 : k - 1;
+        if (!ds[tinta]) { erori.push(ds.length ? `Punctul ${x.nr} are ${ds.length} ${ds.length === 1 ? 'decizie' : 'decizii'}.` : `Punctul ${x.nr} nu are decizii.`); break; }
+        ta.focus(); ta.selectionStart = ta.selectionEnd = ds[tinta].end; deseneazaSalt();
+        facute.push(`Cursorul la decizia ${tinta + 1} de la punctul ${x.nr}`); break; }
+      case 'punct nou': {
+        const titlu = frazaDin(c.rest || 'Diverse').replace(/\.$/, '');
+        const n = s.length + 1; const v = ta.value.replace(/\s+$/, '');
+        ta.value = v; insereaza(v.length, `\n\n${n}. ${titlu}\n`); facute.push(`Punct nou: ${n}`); break; }
+      case 'punctul urmator': case 'rand nou': default: {
+        if (c.tip === 'rand nou') { insereaza(ta.selectionStart, '\n'); facute.push('Rând nou'); break; }
+        const tinta = c.tip === 'punctul urmator' ? i + 1 : (numar(c.tip.slice(8)) ?? 0) - 1;
+        if (!s[tinta]) { erori.push('Nu există punctul acela.'); break; }
+        const p = sfarsitDiscutii(s[tinta]); ta.focus(); ta.selectionStart = ta.selectionEnd = p;
+        facute.push(`Cursorul la punctul ${s[tinta].nr}`); deseneazaSalt(); break; }
+    }
+  }
+  aviz(erori.length ? 'err' : 'ok', [...facute, ...erori].join(' · '));
+}
+function anuleaza() {
+  const u = istoric.pop(); if (!u) { aviz('err', 'Nu e nimic de anulat.'); return; }
+  ta.value = u.v; ta.selectionStart = ta.selectionEnd = u.c; $('undo').disabled = !istoric.length; deseneazaSalt(); aviz('ok', 'Ultima dictare a fost anulată.');
+}
+$('undo').onclick = anuleaza; $('undo').disabled = true;
+document.querySelectorAll('[data-ins]').forEach((b) => { b.onclick = () => { ta.focus(); aplica(b.dataset.ins === 'decizie' ? 'decizie' : `${b.dataset.ins} `); }; });
+// butoanele fără valoare: inserează eticheta goală
+document.querySelector('[data-ins=vot]').onclick = () => { salveazaIstoric(); const { s, i } = sectiuneaLa(ta.selectionStart); const p = sfarsit(s[i]); insereaza(p, rand(p, 'Vot: _ pentru, _ împotrivă, _ abțineri.')); };
+document.querySelector('[data-ins=responsabil]').onclick = () => { salveazaIstoric(); const { s, i } = sectiuneaLa(ta.selectionStart); const p = sfarsit(s[i]); insereaza(p, rand(p, 'Responsabil: ')); };
+document.querySelector('[data-ins=termen]').onclick = () => { salveazaIstoric(); const { s, i } = sectiuneaLa(ta.selectionStart); const p = sfarsit(s[i]); insereaza(p, rand(p, 'Termen: ')); };
+ta.addEventListener('input', () => { atins = true; deseneazaSalt(); });
+ta.addEventListener('click', deseneazaSalt);
+ta.addEventListener('keyup', deseneazaSalt);
+
+function aviz(tip, text) { $('aud').textContent = text; $('aud').className = `text ${tip}`; }
+
+// ---------------- ascultare: unește variantele repetate (Android) și scrie după o pauză ----------------
+const PAUZA_MS = 1300;
+let bucati = [];      // fraze finale ale enunțului curent
+let interim = '';
+let temporizator = null;
+function primeste(text, final) {
+  text = text.trim();
+  if (final && text) {
+    const n = norm(text);
+    const ult = bucati.length ? norm(bucati[bucati.length - 1]) : null;
+    if (ult && n.startsWith(ult)) bucati[bucati.length - 1] = text;       // variantă mai lungă a aceleiași fraze
+    else if (ult && ult.startsWith(n)) { /* variantă mai scurtă: ignoră */ }
+    else if (!bucati.some((b) => norm(b) === n)) bucati.push(text);
+    interim = '';
+  } else interim = text;
+  $('aud-et').textContent = 'Aud'; $('aud-et').className = 'eticheta e-amber';
+  $('aud').className = 'text'; $('aud').textContent = `„${[...bucati, interim].filter(Boolean).join(' ')}”`;
+  clearTimeout(temporizator);
+  temporizator = setTimeout(scrieEnunt, PAUZA_MS);
+}
+function scrieEnunt() {
+  const t = bucati.join(' ').trim(); bucati = []; interim = '';
+  $('aud-et').textContent = asculta ? 'Ascult' : 'Microfon oprit'; $('aud-et').className = asculta ? 'eticheta e-verde' : 'eticheta';
+  if (t) aplica(t);
+}
+
+// microfon real (merge doar deschis local în Chrome/Edge sau pe site; aici e blocat)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, asculta = false;
+function porneste() {
+  if (!SR) { aviz('err', 'Browserul nu are recunoaștere vocală. Folosește caseta „Încearcă vocea aici”.'); return; }
+  rec = new SR(); rec.lang = 'ro-RO'; rec.interimResults = true; rec.continuous = true;
+  rec.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) primeste(e.results[i][0].transcript, e.results[i].isFinal); };
+  rec.onerror = (e) => { if (e.error === 'no-speech' || e.error === 'aborted') return; opreste(); aviz('err', e.error === 'not-allowed' ? 'Microfonul e blocat în această pagină. Folosește caseta „Încearcă vocea aici”.' : `Eroare: ${e.error}`); };
+  rec.onend = () => { if (asculta) try { rec.start(); } catch {} };
+  try { rec.start(); asculta = true; $('mic').classList.add('asculta'); $('mic').setAttribute('aria-pressed', 'true'); $('aud-et').textContent = 'Ascult'; $('aud-et').className = 'eticheta e-verde'; aviz('', 'Vorbește. Textul se scrie după o scurtă pauză.'); }
+  catch { aviz('err', 'Microfonul nu a putut porni.'); }
+}
+function opreste() { asculta = false; try { rec && rec.stop(); } catch {} $('mic').classList.remove('asculta'); $('mic').setAttribute('aria-pressed', 'false'); $('aud-et').textContent = 'Microfon oprit'; $('aud-et').className = 'eticheta'; }
+$('mic').onclick = () => (asculta ? opreste() : porneste());
+
+// simulare: tastat = un enunț; exemplul „Android” trimite variantele repetate ca pe telefon
+function simuleaza(text, android) {
+  if (!android) { primeste(text, true); return; }
+  const cuv = text.split(' '); let k = 0;
+  const pas = () => { k++; primeste(cuv.slice(0, k).join(' '), true); if (k < cuv.length) setTimeout(pas, 180); };
+  pas();
+}
+$('sim-ok').onclick = () => { const t = $('sim').value.trim(); if (t) { $('sim').value = ''; simuleaza(t, false); } };
+$('sim').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('sim-ok').click(); });
+const EX = [
+  ['consemnează administratorul a prezentat două oferte pentru revizie', false],
+  ['consemnează', false],
+  ['decizie', false],
+  ['se aprobă oferta firmei Ascensor Plus', false],
+  ['vot 4 pentru 1 împotrivă 0 abțineri', false],
+  ['responsabil președinte termen 30 octombrie', false],
+  ['decizie se cer încă două oferte', false],
+  ['decizia 1', false],
+  ['vot 3 pentru 2 împotrivă 0 abțineri', false],
+  ['punctul următor', false],
+  ['decizie se montează camere la subsol vot unanim responsabil camere termen peste 30 de zile', false],
+  ['punct nou diverse', false],
+  ['Android: că vom discuta subiectul bla bla', true],
+  ['șterge ultima', false],
+];
+$('exemple').append(...EX.map(([t, a]) => el('button', { type: 'button', onclick: () => simuleaza(a ? t.replace(/^Android: /, '') : t, a) }, `„${t}”`)));
+
+// ---------------- ordine de zi laterală ----------------
+function deseneazaSalt() {
+  const s = sectiuni(); const poz = ta.selectionStart; const { i } = sectiuneaLa(poz);
+  const muta = (p) => { ta.focus(); ta.selectionStart = ta.selectionEnd = p; deseneazaSalt(); };
+  $('salt').replaceChildren(...s.flatMap((x, k) => {
+    const ds = decizii(x);
+    let kd = -1; if (k === i) ds.forEach((d, j) => { if (poz >= d.start) kd = j; });
+    return [
+      el('button', { type: 'button', class: k === i && kd < 0 ? 'curent' : null, onclick: () => muta(sfarsitDiscutii(x)) }, `${x.nr}. ${x.titlu}`),
+      ...ds.map((d, j) => el('button', { type: 'button', class: `dec${k === i && j === kd ? ' curent' : ''}`, onclick: () => muta(d.end) },
+        `Decizia ${j + 1}: ${d.text || '…'}`)),
+    ];
+  }));
+}
+
+// ---------------- previzualizare ----------------
+function structura() {
+  return sectiuni().map((x) => {
+    const linii = ta.value.slice(x.corp, x.end).split('\n').map((l) => l.trim()).filter(Boolean);
+    const disc = []; const dec = [];
+    for (const l of linii) {
+      let m;
+      if ((m = l.match(/^Decizie:\s*(.*)$/i))) dec.push({ text: m[1] });
+      else if (dec.length && (m = l.match(/^Vot:\s*(.*)$/i))) dec[dec.length - 1].vot = m[1];
+      else if (dec.length && (m = l.match(/^Responsabil:\s*(.*)$/i))) dec[dec.length - 1].resp = m[1].replace(/\.$/, '');
+      else if (dec.length && (m = l.match(/^Termen:\s*(.*)$/i))) dec[dec.length - 1].termen = m[1].replace(/\.$/, '');
+      else if (dec.length) dec[dec.length - 1].text += ' ' + l;
+      else disc.push(l);
+    }
+    return { titlu: `${x.nr}. ${x.titlu}`, disc: disc.join('\n'), dec };
+  });
+}
+function deseneazaPrevizualizare() {
+  $('previz').replaceChildren(...structura().map((p) => [
+    el('h3', {}, p.titlu),
+    p.disc ? el('p', {}, p.disc) : el('p', { class: 'slab' }, 'Fără discuții consemnate.'),
+    p.dec.map((d, k) => el('div', { class: 'decizie' },
+      el('div', {}, el('strong', {}, `Decizia ${k + 1}: `), d.text.trim() || el('span', { class: 'lipsa' }, 'fără text')),
+      el('div', { class: 'campuri-d' },
+        d.vot ? el('span', { class: 'eticheta e-verde' }, d.vot.replace(/\.$/, '')) : el('span', { class: 'lipsa' }, 'lipsește votul'),
+        d.resp ? el('span', { class: 'eticheta e-albastru' }, `Responsabil: ${d.resp}`) : null,
+        d.termen ? el('span', { class: 'eticheta e-amber' }, `Termen ${d.termen}`) : null))),
+  ]).flat());
+}
+function vedere(prev) {
+  $('vez-edit').setAttribute('aria-pressed', !prev); $('vez-prev').setAttribute('aria-pressed', prev);
+  ta.hidden = prev; $('previz').hidden = !prev; if (prev) deseneazaPrevizualizare();
+}
+$('vez-edit').onclick = () => vedere(false);
+$('vez-prev').onclick = () => vedere(true);
+
+// ---------------- flux: redactare → semnare → închis ----------------
+function deseneazaFlux() {
+  const pasi = [['redactare', 'Redactare'], ['semnare', 'Semnare'], ['inchis', 'Închis · la avizier']];
+  const idx = pasi.findIndex((p) => p[0] === stare);
+  $('flux').replaceChildren(...pasi.flatMap(([id, t], k) => [
+    k ? el('span', { class: 'sageata' }, '→') : null,
+    el('span', { class: `pas ${k === idx ? 'activ' : k < idx ? 'gata' : ''}` }, el('b', {}, k < idx ? '✓' : String(k + 1)), t)]));
+  ta.readOnly = stare !== 'redactare';
+}
+function deseneazaSemn() {
+  $('semn').replaceChildren(...SEMNATARI.map((n) => el('div', {}, el('span', {}, n), semnati.has(n) ? el('span', { class: 'eticheta e-verde' }, '✓ semnat') : el('span', { class: 'eticheta' }, 'nesemnat'))));
+  const toti = semnati.size === SEMNATARI.length;
+  $('inchide').disabled = !toti || stare === 'inchis';
+  $('sim-semn').disabled = stare === 'inchis';
+  $('semn-nota').textContent = stare === 'inchis'
+    ? 'Închis și afișat la avizier. Nu se mai poate modifica nimic.'
+    : toti ? 'Au semnat toți. Președintele închide procesul-verbal și îl trimite la avizier.'
+    : 'Prima semnătură blochează textul. O modificare ulterioară anulează semnăturile.';
+}
+$('sim-semn').onclick = () => { if (stare === 'inchis') return; stare = 'semnare'; SEMNATARI.forEach((n) => semnati.add(n)); deseneazaFlux(); deseneazaSemn(); aviz('ok', 'Toți au semnat (simulare).'); };
+$('inchide').onclick = () => { stare = 'inchis'; deseneazaFlux(); deseneazaSemn(); aviz('ok', 'Procesul-verbal a fost închis și afișat la avizier.'); };
+
+// ---------------- start ----------------
+construiesteOrdinea();
+deseneazaConv();
+</script>

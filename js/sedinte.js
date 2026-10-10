@@ -5,6 +5,10 @@
 //   avizier/<an>.json (repo public):  procesele-verbale semnate complet, cu semnăturile lor
 //
 // Legea 196/2018, art. 55: convocare cu cel puțin 5 zile înainte; deciziile se afișează în 7 zile.
+//
+// Stări: convocată → PV redactat → în semnare → semnată de toți → închisă și afișată.
+// Închiderea o face președintele, manual; abia atunci PV ajunge la avizier și nu se mai poate schimba.
+// Ședințele de dinainte de închiderea manuală (fără `inchidereManuala`) erau afișate automat la ultima semnătură.
 
 export const ZILE_CONVOCARE = 5;
 export const ZILE_AFISARE = 7;
@@ -13,7 +17,8 @@ export const STARI_SEDINTA = {
   convocata: 'Convocată',
   pv_redactat: 'Proces-verbal redactat',
   in_semnare: 'În semnare',
-  semnata: 'Semnată și afișată',
+  semnata: 'Semnată de toți',
+  afisata: 'Închisă și afișată',
 };
 
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -37,11 +42,18 @@ export function continutPV(s, an) {
 }
 
 export function stareSedinta(s) {
+  if (s.inchisaLa) return 'afisata';
   if (!s.pv) return 'convocata';
   const semnati = new Set((s.semnaturi || []).map((x) => x.u));
   if (!semnati.size) return 'pv_redactat';
-  return s.pv.semnatari.every((u) => semnati.has(u)) ? 'semnata' : 'in_semnare';
+  if (!s.pv.semnatari.every((u) => semnati.has(u))) return 'in_semnare';
+  return s.inchidereManuala ? 'semnata' : 'afisata';
 }
+
+export const inchisa = (s) => stareSedinta(s) === 'afisata';
+const blocheazaDacaInchisa = (s) => {
+  if (inchisa(s)) throw new Error('Procesul-verbal e închis și afișat la avizier. Nu se mai poate modifica nimic.');
+};
 
 export const cvorum = (membri, prezenti) => {
   const necesar = Math.floor(membri / 2) + 1;
@@ -69,6 +81,7 @@ export class Sedinte {
       const reg = await this.citesteAn(an, head);
       const s = reg.sedinte.find((x) => x.nr === nr);
       if (!s) throw new Error(`Ședința ${nr}/${an} nu există.`);
+      blocheazaDacaInchisa(s);
       await schimbare(s, reg);
       return { files: [{ path: cale(an), text: json(reg) }], result: { an, s } };
     }, () => `Ședința ${nr}/${an}: ${descriere} (${this.cont.u})`);
@@ -76,7 +89,7 @@ export class Sedinte {
     return rez;
   }
 
-  async convoaca({ data, ora, ordineZi, zoom }) {
+  async convoaca({ data, ora, ordineZi, zoom, sesizari = [] }) {
     if (!data || !ora) throw new Error('Alege data și ora ședinței.');
     const puncte = ordineZi.map((p) => p.trim()).filter(Boolean);
     if (!puncte.length) throw new Error('Completează ordinea de zi.');
@@ -85,7 +98,7 @@ export class Sedinte {
       const reg = await this.citesteAn(an, head);
       const s = {
         nr: reg.sedinte.reduce((m, x) => Math.max(m, x.nr), 0) + 1,
-        data, ora, ordineZi: puncte, zoom: (zoom || '').trim(),
+        data, ora, ordineZi: puncte, zoom: (zoom || '').trim(), sesizari, inchidereManuala: true,
         convocataDe: this.cont.u, convocataLa: acum(),
         confirmari: [], prezenta: [], pv: null, semnaturi: [], semnaturiAnulate: [], istoric: [],
       };
@@ -95,11 +108,11 @@ export class Sedinte {
     }, ({ s }) => `Ședința ${s.nr}/${an} convocată pentru ${data} ${ora} (${this.cont.u})`);
   }
 
-  editeazaConvocare(an, nr, { data, ora, ordineZi, zoom }) {
+  editeazaConvocare(an, nr, { data, ora, ordineZi, zoom, sesizari = [] }) {
     return this.modifica(an, nr, (s) => {
       if (s.pv) throw new Error('Procesul-verbal a fost deja redactat; convocarea nu se mai poate modifica.');
       if (data.slice(0, 4) !== s.data.slice(0, 4)) throw new Error('Data trebuie să rămână în același an.');
-      Object.assign(s, { data, ora, ordineZi: ordineZi.map((p) => p.trim()).filter(Boolean), zoom: (zoom || '').trim() });
+      Object.assign(s, { data, ora, ordineZi: ordineZi.map((p) => p.trim()).filter(Boolean), zoom: (zoom || '').trim(), sesizari });
       if (s.confirmari.length) this.istoric(s, `Convocare modificată — ${s.confirmari.length} confirmări anulate`);
       else this.istoric(s, 'Convocare modificată');
       s.confirmari = [];
@@ -147,16 +160,33 @@ export class Sedinte {
       this.istoric(s, 'Proces-verbal semnat (passkey)');
       if (stareSedinta(s) === 'semnata') {
         s.semnataLa = acum();
-        this.istoric(s, 'Semnat de toți — publicat la avizier');
+        this.istoric(s, 'Semnat de toți — așteaptă închiderea de către președinte');
       }
     }, 'semnătură proces-verbal');
   }
 
-  // Avizierul public conține doar procesele-verbale semnate de toți semnatarii.
+  // Președintele închide procesul-verbal semnat de toți: se afișează la avizier și se blochează.
+  inchidePV(an, nr) {
+    return this.modifica(an, nr, (s) => {
+      if (this.cont.rol !== 'presedinte') throw new Error('Doar președintele închide procesul-verbal.');
+      if (stareSedinta(s) !== 'semnata') throw new Error('Procesul-verbal se poate închide doar după ce au semnat toți semnatarii.');
+      s.inchisaLa = acum();
+      s.inchisaDe = this.cont.u;
+      this.istoric(s, 'Proces-verbal închis și afișat la avizier');
+    }, 'proces-verbal închis și afișat');
+  }
+
+  // Sesizările deja trecute pe ordinea de zi a unei ședințe din anul dat („nr/an”).
+  async sesizariPeOrdine(an) {
+    const reg = await this.citesteAn(an);
+    return new Set(reg.sedinte.flatMap((s) => s.sesizari || []));
+  }
+
+  // Avizierul public conține doar procesele-verbale închise (semnate de toți și închise de președinte).
   async publicaAvizier(an) {
     const reg = await this.citesteAn(an);
-    const semnate = reg.sedinte.filter((s) => stareSedinta(s) === 'semnata').map((s) => ({
-      nr: s.nr, data: s.data, ora: s.ora, ordineZi: s.ordineZi, pv: s.pv, semnaturi: s.semnaturi, semnataLa: s.semnataLa,
+    const semnate = reg.sedinte.filter(inchisa).map((s) => ({
+      nr: s.nr, data: s.data, ora: s.ora, ordineZi: s.ordineZi, pv: s.pv, semnaturi: s.semnaturi, semnataLa: s.semnataLa, inchisaLa: s.inchisaLa,
     }));
     const existent = await this.ghPublic.readJson(caleAvizier(an));
     if (JSON.stringify(existent?.sedinte || []) === JSON.stringify(semnate)) return;

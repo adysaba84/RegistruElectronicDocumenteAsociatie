@@ -57,13 +57,18 @@ sesizările apartamentului lui.
 ## Ședințe comitet executiv
 
 - **Membru comitet executiv:** bifă în Utilizatori pe conturile existente (președintele e membru de drept).
-- **Convocare** (președintele): dată, oră, ordinea de zi, link Zoom; avertizare sub 5 zile (art. 55). Membrii și cenzorul
-  confirmă **„Am luat la cunoștință”** cu passkey.
+- **Convocare** (președintele): dată, oră, link Zoom; avertizare sub 5 zile (art. 55). Ordinea de zi vine precompletată
+  cu sesizările de pe lista ședinței lunare încă netrecute pe ordinea de zi a altei ședințe (se pot debifa); se adaugă
+  puncte și se reordonează. Membrii și cenzorul confirmă **„Am luat la cunoștință”** cu passkey.
 - **Prezență:** „Sunt prezent” (de la o oră înainte de ședință); cvorum = jumătate + 1 din membri.
-- **Proces-verbal** (orice membru): nr. din registrul unic (1/2026, 2/2026…), participanți, cvorum, puncte, decizii cu vot,
-  responsabil și termen. Semnează cu passkey membrii prezenți și cenzorul; textul se blochează la prima semnătură, iar o
-  modificare ulterioară anulează semnăturile.
-- **Avizier** (public): procesele-verbale semnate de toți, cu verificarea semnăturilor; avertizare pentru termenul de 7 zile.
+- **Proces-verbal** (orice membru): nr. din registrul unic (1/2026, 2/2026…). Se redactează într-o foaie mare de text
+  (rânduri `Decizie:` / `Vot:` / `Responsabil:` / `Termen:`), la tastatură sau cu **dictare vocală**
+  (vezi `docs/plans/plan-dictare-vocala.md`); la salvare textul devine structura semnată. Semnează cu passkey membrii
+  prezenți și cenzorul; o modificare după prima semnătură anulează semnăturile.
+- **Închidere:** după ce au semnat toți, președintele apasă **„Închide și afișează la avizier”**. Abia atunci procesul-verbal
+  devine public și nu se mai poate modifica nimic. (Ședințele semnate înainte de această regulă au fost afișate automat
+  și sunt tratate ca închise.)
+- **Avizier** (public): procesele-verbale închise, cu verificarea semnăturilor; avertizare pentru termenul de 7 zile.
 
 ## Semnătură electronică și integritate
 

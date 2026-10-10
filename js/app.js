@@ -1,18 +1,19 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=15';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=15';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=16';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=16';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
-} from './store.js?v=15';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=15';
+} from './store.js?v=16';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=16';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=15';
+} from './sedinte.js?v=16';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=15';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza } from './comenzi-voce.js?v=15';
-import { Dictare, dictareSuportata } from './dictare.js?v=15';
+} from './config.js?v=16';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza } from './comenzi-voce.js?v=16';
+import { pvInText, textInPV } from './pv-text.js?v=16';
+import { Dictare, dictareSuportata } from './dictare.js?v=16';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -1145,7 +1146,7 @@ async function hashB64u(text) {
 
 function insignaSedinta(s) {
   const st = stareSedinta(s);
-  const cls = { convocata: 'stare-repartizata', pv_redactat: 'stare-in_lucru', in_semnare: 'stare-raspuns_propus', semnata: 'stare-raspuns_trimis' }[st];
+  const cls = { convocata: 'stare-repartizata', pv_redactat: 'stare-in_lucru', in_semnare: 'stare-raspuns_propus', semnata: 'stare-raspuns_propus', afisata: 'stare-raspuns_trimis' }[st];
   return h('span', { class: `eticheta ${cls}` }, STARI_SEDINTA[st]);
 }
 
@@ -1155,7 +1156,7 @@ function avertizariSedinta(s) {
   if (convocare < ZILE_CONVOCARE) {
     out.push(h('p', { class: 'avertizare' }, ic('alert-triangle'), ` Convocată cu ${Math.max(0, Math.floor(convocare))} zile înainte — legea cere cel puțin ${ZILE_CONVOCARE} zile (art. 55 din Legea nr. 196/2018).`));
   }
-  if (stareSedinta(s) !== 'semnata' && new Date() > inceput(s)) {
+  if (stareSedinta(s) !== 'afisata' && new Date() > inceput(s)) {
     const limita = new Date(inceput(s).getTime() + ZILE_AFISARE * 86400000);
     const ramase = Math.ceil(zileIntre(limita, new Date()));
     out.push(h('p', { class: ramase < 0 ? 'eroare' : 'avertizare' }, ic('clock'),
@@ -1179,7 +1180,7 @@ async function paginaSedinte() {
     lista.length
       ? h('ul', { class: 'lista-sesizari' }, lista.map((s) => h('li', {},
         h('a', { href: `#/admin/sedinte/${S.an}/${s.nr}`, class: 'rand-sesizare' },
-          h('span', { class: `placa ${stareSedinta(s) === 'semnata' ? 'inchisa' : stareSedinta(s) === 'convocata' ? '' : 'in_lucru'}` }, ic('calendar')),
+          h('span', { class: `placa ${stareSedinta(s) === 'afisata' ? 'inchisa' : stareSedinta(s) === 'convocata' ? '' : 'in_lucru'}` }, ic('calendar')),
           h('div', { class: 'rand-cap' },
             h('span', { class: 'nr' }, `Ședința ${s.nr}/${S.an}`),
             h('span', {}, `${fmtData(s.data)} · ${s.ora}`),
@@ -1189,19 +1190,88 @@ async function paginaSedinte() {
       : h('p', { class: 'gol' }, `Nicio ședință în ${S.an}.`));
 }
 
-function formularConvocare(s, an) {
+// Sesizările propuse pentru ședință: pe lista ședinței lunare (art. 23–24), nefinalizate și
+// netrecute încă pe ordinea de zi a altei ședințe. `exceptNr` = ședința editată (ale ei rămân propuse).
+async function sesizariPropuse(exceptNr, anSedinta) {
+  const ani = [...new Set([...(S.ani || []), S.an])];
+  const [registre, sedinte] = await Promise.all([
+    Promise.all(ani.map((a) => S.reg.citesteAn(a).then((r) => ({ an: a, r })))),
+    Promise.all(ani.map((a) => S.sed.citesteAn(a))),
+  ]);
+  const folosite = new Set(sedinte.flatMap((r) => r.sedinte
+    .filter((x) => !(r.an === anSedinta && x.nr === exceptNr)).flatMap((x) => x.sesizari || [])));
+  return registre.flatMap(({ an, r }) => r.inregistrari
+    .filter((x) => x.listaLunara && !STARI_FINALE.includes(x.stare) && !folosite.has(`${x.nr}/${an}`))
+    .map((x) => ({ cheie: `${x.nr}/${an}`, x })));
+}
+
+const RE_SESIZARE_PE_ORDINE = /\(sesizarea nr\. (\d+\/\d+)\)$/;
+function scurt(t, n = 90) {
+  t = (t || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= n) return t;
+  const sp = t.lastIndexOf(' ', n);
+  return `${t.slice(0, sp > 40 ? sp : n)}…`;
+}
+const titluDinSesizare = ({ cheie, x }) => `${scurt(x.problema || 'Sesizare').replace(/[.…]+$/, '')} (sesizarea nr. ${cheie})`;
+
+async function formularConvocare(s, an) {
+  seIncarca('sedinte');
+  let propuse;
+  try { propuse = await sesizariPropuse(s?.nr, an); } catch (e) { return eroarePagina('sedinte', e); }
+
+  // Ordinea de zi: [{ titlu, cheie? }]. La o ședință nouă, toate sesizările propuse sunt bifate.
+  let ordine = s
+    ? s.ordineZi.map((titlu) => ({ titlu, cheie: titlu.match(RE_SESIZARE_PE_ORDINE)?.[1] }))
+    : propuse.map((p) => ({ titlu: titluDinSesizare(p), cheie: p.cheie }));
+
   const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
   const avert = h('p', { class: 'avertizare', hidden: true });
+  const listaOrdine = h('ol', { class: 'ordine-zi' });
+  const listaPropuse = h('div', { class: 'propuse' });
+  const punctNou = h('input', { type: 'text', 'aria-label': 'Punct nou pe ordinea de zi', placeholder: 'ex.: Bugetul pentru curățenia de primăvară' });
+
+  const muta = (i, j) => { [ordine[i], ordine[j]] = [ordine[j], ordine[i]]; deseneaza(); };
+  const deseneaza = () => {
+    listaPropuse.replaceChildren(...(propuse.length ? propuse.map((p) => {
+      const dom = p.x.categorie === 'propunere' ? 'Propunere de proiect' : (DOMENII.find((d) => d.id === p.x.domeniu)?.nume || '');
+      return h('label', { class: 'bifa' },
+        h('input', { type: 'checkbox', checked: ordine.some((o) => o.cheie === p.cheie), onchange: (ev) => {
+          ordine = ev.target.checked ? [...ordine, { titlu: titluDinSesizare(p), cheie: p.cheie }] : ordine.filter((o) => o.cheie !== p.cheie);
+          deseneaza();
+        } }),
+        h('span', {}, h('strong', { class: 'cod' }, `Nr. ${p.cheie}`), ` · ${dom}`, h('br'), h('span', { class: 'slab' }, scurt(p.x.problema, 160))));
+    }) : [h('p', { class: 'slab mic' }, 'Nicio sesizare nu așteaptă o ședință. Le pui pe listă din pagina sesizării: „Pune pe lista ședinței lunare”.')]));
+    listaOrdine.replaceChildren(...ordine.map((o, i) => h('li', {},
+      h('span', { class: 'titlu' }, o.titlu),
+      h('button', { type: 'button', class: 'mic-btn', title: 'Mută mai sus', 'aria-label': 'Mută mai sus', disabled: i === 0, onclick: () => muta(i, i - 1) }, ic('arrow-up')),
+      h('button', { type: 'button', class: 'mic-btn', title: 'Mută mai jos', 'aria-label': 'Mută mai jos', disabled: i === ordine.length - 1, onclick: () => muta(i, i + 1) }, ic('arrow-down')),
+      h('button', { type: 'button', class: 'mic-btn', title: 'Scoate de pe ordinea de zi', 'aria-label': 'Scoate', onclick: () => { ordine.splice(i, 1); deseneaza(); } }, ic('x')))));
+    if (!ordine.length) listaOrdine.append(h('li', { class: 'gol-ordine slab' }, 'Ordinea de zi e goală. Bifează sesizări sau adaugă puncte.'));
+  };
+  const adauga = () => {
+    const t = punctNou.value.trim();
+    if (!t) return;
+    ordine.push({ titlu: t });
+    punctNou.value = '';
+    deseneaza();
+    punctNou.focus();
+  };
+  punctNou.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); adauga(); } });
+
   const verificaTermen = () => {
     if (!form.data.value || !form.ora.value) { avert.hidden = true; return; }
     const zile = zileIntre(new Date(`${form.data.value}T${form.ora.value}:00`), new Date());
     avert.hidden = zile >= ZILE_CONVOCARE;
     avert.textContent = `Atenție: până la ședință sunt mai puțin de ${ZILE_CONVOCARE} zile. Legea cere convocarea cu cel puțin ${ZILE_CONVOCARE} zile înainte (art. 55 din Legea nr. 196/2018).`;
   };
-  const form = h('form', { class: 'card formular', oninput: verificaTermen, onsubmit: async (ev) => {
+  const form = h('form', { class: 'formular convocare', oninput: verificaTermen, onsubmit: async (ev) => {
     ev.preventDefault();
     eroare.hidden = true;
-    const c = { data: form.data.value, ora: form.ora.value, zoom: form.zoom.value, ordineZi: form.ordineZi.value.split('\n') };
+    const c = {
+      data: form.data.value, ora: form.ora.value, zoom: form.zoom.value,
+      ordineZi: ordine.map((o) => o.titlu),
+      sesizari: ordine.map((o) => o.cheie).filter(Boolean),
+    };
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     try {
@@ -1215,17 +1285,27 @@ function formularConvocare(s, an) {
       eroare.hidden = false;
     }
   } },
-  h('div', { class: 'grila' },
-    h('label', {}, 'Data *', h('input', { type: 'date', name: 'data', required: true, value: s?.data || '' })),
-    h('label', {}, 'Ora *', h('input', { type: 'time', name: 'ora', required: true, value: s?.ora || '19:00' })),
-    h('label', { class: 'lat' }, 'Ordinea de zi * (câte un punct pe rând)', h('textarea', { name: 'ordineZi', rows: 5, required: true }, (s?.ordineZi || []).join('\n'))),
-    h('label', { class: 'lat' }, 'Link Zoom', h('input', { name: 'zoom', value: s?.zoom || '', placeholder: 'https://zoom.us/j/…' }))),
-  avert,
-  s?.confirmari.length ? h('p', { class: 'avertizare' }, `Modificarea anulează cele ${s.confirmari.length} confirmări „Am luat la cunoștință”.`) : null,
-  eroare,
-  h('div', { class: 'actiuni' },
-    h('button', { type: 'submit', class: 'principal' }, s ? 'Salvează convocarea' : 'Convoacă ședința'),
-    h('a', { href: s ? `#/admin/sedinte/${an}/${s.nr}` : '#/admin/sedinte', class: 'buton' }, 'Renunță')));
+  h('div', { class: 'convocare-grila' },
+    h('div', { class: 'card' },
+      h('div', { class: 'grila' },
+        h('label', {}, 'Data *', h('input', { type: 'date', name: 'data', required: true, value: s?.data || '' })),
+        h('label', {}, 'Ora *', h('input', { type: 'time', name: 'ora', required: true, value: s?.ora || '19:00' })),
+        h('label', { class: 'lat' }, 'Link Zoom', h('input', { name: 'zoom', value: s?.zoom || '', placeholder: 'https://zoom.us/j/…' }))),
+      h('h2', {}, ic('list'), ' Propuse din sesizări'),
+      h('p', { class: 'slab mic' }, 'Sesizările de pe lista ședinței lunare (fără soluție propusă și propunerile de proiect, art. 23–24), încă nediscutate. Debifează ce nu vrei pe ordinea de zi.'),
+      listaPropuse,
+      h('h2', {}, ic('plus'), ' Alte puncte'),
+      h('div', { class: 'rand-adauga' }, punctNou, h('button', { type: 'button', onclick: adauga }, 'Adaugă'))),
+    h('div', { class: 'card' },
+      h('h2', {}, ic('notebook'), ' Ordinea de zi'),
+      listaOrdine,
+      avert,
+      s?.confirmari.length ? h('p', { class: 'avertizare' }, `Modificarea anulează cele ${s.confirmari.length} confirmări „Am luat la cunoștință”.`) : null,
+      eroare,
+      h('div', { class: 'actiuni' },
+        h('button', { type: 'submit', class: 'principal' }, s ? 'Salvează convocarea' : 'Convoacă ședința'),
+        h('a', { href: s ? `#/admin/sedinte/${an}/${s.nr}` : '#/admin/sedinte', class: 'buton' }, 'Renunță')))));
+  deseneaza();
   afiseaza('sedinte', h('h1', {}, s ? `Modifică convocarea ${s.nr}/${an}` : 'Convoacă o ședință'), form);
   verificaTermen();
 }
@@ -1293,7 +1373,7 @@ async function paginaSedinta(an, nr) {
       const sem = s.confirmari.find((x) => x.u === c.u);
       return sem ? blocSemnatura(sem, textConvocare) : h('div', { class: 'semnatura asteapta' }, ic('clock'), h('div', {}, h('strong', {}, eticheta(c.u)), h('span', { class: 'mic' }, 'nu a confirmat încă')));
     })),
-    participaLaSedinte() && !confirmat && h('button', { class: 'principal', onclick: actiune(async () => {
+    participaLaSedinte() && !confirmat && stare !== 'afisata' && h('button', { class: 'principal', onclick: actiune(async () => {
       const sem = await semneazaCu(textConvocare);
       await S.sed.confirma(an, nr, sem, (x) => hashB64u(continutConvocare(x, an)));
     }, 'Ai confirmat că ai luat la cunoștință convocarea.') }, ic('fingerprint'), 'Am luat la cunoștință'));
@@ -1324,8 +1404,12 @@ async function paginaSedinta(an, nr) {
           const sem = await semneazaCu(textPV);
           await S.sed.semneazaPV(an, nr, sem, (x) => hashB64u(continutPV(x, an)));
         }, 'Ai semnat procesul-verbal.') }, ic('fingerprint'), 'Semnează procesul-verbal'),
-        stare === 'semnata' && h('p', { class: 'succes' }, 'Semnat de toți. Deciziile sunt afișate la ', h('a', { href: `#/avizier/${an}/${nr}` }, 'avizier'), '.'),
-        eMembruComitet() && h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton' }, ic('pencil'),
+        stare === 'semnata' && h('p', { class: 'succes' }, 'Au semnat toți. Președintele închide procesul-verbal și îl afișează la avizier.'),
+        stare === 'semnata' && ePresedinte() && h('button', { class: 'principal', onclick: actiune(() => S.sed.inchidePV(an, nr), 'Procesul-verbal a fost închis și afișat la avizier.') },
+          ic('lock'), 'Închide și afișează la avizier'),
+        stare === 'afisata' && h('p', { class: 'succes' }, ic('lock'), ' Închis și afișat la ', h('a', { href: `#/avizier/${an}/${nr}` }, 'avizier'),
+          s.inchisaLa ? ` pe ${fmtDataOra(s.inchisaLa)}` : '', '. Nu se mai poate modifica.'),
+        stare !== 'afisata' && eMembruComitet() && h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton' }, ic('pencil'),
           s.semnaturi.length ? 'Modifică (anulează semnăturile)' : 'Modifică procesul-verbal')));
   } else if (eMembruComitet()) {
     blocuri.push(h('div', { class: 'card' },
@@ -1343,7 +1427,13 @@ async function paginaSedinta(an, nr) {
     blocIstoric(s));
 }
 
+// Redactarea procesului-verbal: o foaie mare de text (gândită pentru calculator), cu dictare vocală.
+// La salvare textul devine structura semnată (puncte, discuții, decizii cu vot / responsabil / termen).
 function formularPV(s, an) {
+  if (stareSedinta(s) === 'afisata') {
+    return afiseaza('sedinte', h('p', { class: 'eroare' }, 'Procesul-verbal e închis și afișat la avizier. Nu se mai poate modifica.'),
+      h('a', { href: `#/admin/sedinte/${an}/${s.nr}`, class: 'buton' }, ic('arrow-left'), 'Înapoi la ședință'));
+  }
   const membri = membriComitet();
   const prezentiMembri = membri.filter((m) => s.prezenta.some((p) => p.u === m.u)).map((m) => m.u);
   const cenzori = conturiCenzor().map((c) => c.u);
@@ -1351,291 +1441,316 @@ function formularPV(s, an) {
   const participantiPV = existent?.participanti || s.prezenta.map((p) => p.u);
   const cv = existent?.cvorum || cvorum(membri.length, prezentiMembri.length);
   const semnatari = existent?.semnatari || [...new Set([...prezentiMembri, ...cenzori])];
-  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const roluri = ROLURI.map((r) => ({ id: r.id, nume: numeRol(r.id) }));
+  const puncteInitiale = existent?.puncte || s.ordineZi.map((titlu) => ({ titlu, discutii: '', decizii: [] }));
 
-  const optiuniRol = (sel) => [h('option', { value: '' }, '—'), ...ROLURI.map((r) => h('option', { value: r.id, selected: r.id === sel }, numeRol(r.id)))];
-  const decizieNoua = (d = {}) => {
-    const el = h('div', { class: 'decizie editare' },
-      h('label', {}, 'Decizia', h('textarea', { 'data-k': 'text', rows: 2, required: true }, d.text || '')),
-      h('div', { class: 'grila-vot' },
-        h('label', {}, 'Pentru', h('input', { 'data-k': 'pentru', type: 'number', min: 0, value: d.pentru ?? '', required: true })),
-        h('label', {}, 'Împotrivă', h('input', { 'data-k': 'impotriva', type: 'number', min: 0, value: d.impotriva ?? 0, required: true })),
-        h('label', {}, 'Abțineri', h('input', { 'data-k': 'abtineri', type: 'number', min: 0, value: d.abtineri ?? 0, required: true }))),
-      h('div', { class: 'grila-vot' },
-        h('label', {}, 'Responsabil', h('select', { 'data-k': 'responsabil' }, optiuniRol(d.responsabil))),
-        h('label', {}, 'Termen', h('input', { 'data-k': 'termen', type: 'date', value: d.termen || '' }))),
-      h('button', { type: 'button', class: 'link', onclick: () => el.remove() }, 'Șterge decizia'));
-    return el;
-  };
-  const puncteSursa = existent?.puncte || s.ordineZi.map((titlu) => ({ titlu, discutii: '', decizii: [] }));
-  const punctNou = (pt) => {
-    const lista = h('div', { class: 'decizii' }, (pt.decizii || []).map((d) => decizieNoua(d)));
-    return h('fieldset', { class: 'card punct', 'data-titlu': pt.titlu },
-      h('legend', {}, pt.titlu),
-      h('label', {}, 'Discuții (pe scurt)', h('textarea', { 'data-k': 'discutii', rows: 3 }, pt.discutii || '')),
-      lista,
-      h('button', { type: 'button', onclick: () => lista.append(decizieNoua()) }, ic('plus'), 'Adaugă decizie'));
-  };
-  const zonaPuncte = h('div', { class: 'puncte-pv' }, puncteSursa.map(punctNou));
-  const observatii = h('textarea', { rows: 2, 'aria-label': 'Observații' }, existent?.observatii || '');
+  const ta = h('textarea', { class: 'foaie-pv', spellcheck: 'true', 'aria-label': 'Textul procesului-verbal' }, pvInText(puncteInitiale, numeRol));
+  const observatii = h('textarea', { rows: 3, 'aria-label': 'Observații' }, existent?.observatii || '');
+  const eroare = h('div', { class: 'eroare', role: 'alert', hidden: true });
+  const ed = editorPV({ ta, prezenti: cv.prezenti, dataSedinta: s.data, roluri });
 
-  const form = h('form', { class: 'formular', onsubmit: async (ev) => {
+  const form = h('form', { class: 'formular pv-editor', onsubmit: async (ev) => {
     ev.preventDefault();
     eroare.hidden = true;
+    const { puncte, erori } = textInPV(ta.value, { roluri, dataSedinta: s.data });
+    if (erori.length) {
+      eroare.replaceChildren(h('strong', {}, 'Corectează înainte de salvare:'), h('ul', {}, erori.map((e) => h('li', {}, e))));
+      eroare.hidden = false;
+      eroare.scrollIntoView({ block: 'center' });
+      return;
+    }
     if (s.semnaturi.length && !confirm(`Procesul-verbal are ${s.semnaturi.length} semnături. Salvarea le anulează și toți trebuie să semneze din nou. Continui?`)) return;
-    const pv = {
-      participanti: participantiPV,
-      cvorum: cv,
-      semnatari,
-      puncte: [...zonaPuncte.querySelectorAll('fieldset.punct')].map((f) => ({
-        titlu: f.dataset.titlu,
-        discutii: f.querySelector('[data-k=discutii]').value.trim(),
-        decizii: [...f.querySelectorAll('.decizie')].map((d) => {
-          const v = (k) => d.querySelector(`[data-k=${k}]`).value;
-          return { text: v('text').trim(), pentru: Number(v('pentru')), impotriva: Number(v('impotriva')), abtineri: Number(v('abtineri')), responsabil: v('responsabil'), termen: v('termen') };
-        }),
-      })),
-      observatii: observatii.value.trim(),
-    };
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
+    ed.opreste();
     try {
-      await S.sed.salveazaPV(an, s.nr, pv);
+      await S.sed.salveazaPV(an, s.nr, { participanti: participantiPV, cvorum: cv, semnatari, puncte, observatii: observatii.value.trim() });
       S.mesaj = 'Procesul-verbal a fost salvat. Semnatarii îl pot semna acum.';
       mergi(`#/admin/sedinte/${an}/${s.nr}`);
     } catch (e) {
       btn.disabled = false;
-      eroare.textContent = mesajEroare(e);
+      eroare.replaceChildren(mesajEroare(e));
       eroare.hidden = false;
     }
   } },
-  h('div', { class: 'card' },
-    h('dl', { class: 'detalii' },
-      h('dt', {}, 'Participanți'), h('dd', {}, participantiPV.map((u) => eticheta(u)).join(', ') || '— (nimeni nu a marcat prezența)'),
-      h('dt', {}, 'Cvorum'), h('dd', {}, `${cv.prezenti} din ${cv.membri} membri (necesar ${cv.necesar}) — ${cv.intrunit ? 'întrunit' : 'neîntrunit'}`),
-      h('dt', {}, 'Semnează'), h('dd', {}, semnatari.map((u) => eticheta(u)).join(', '))),
-    h('p', { class: 'slab mic' }, 'Participanții și cvorumul se iau din butoanele „Sunt prezent”. Semnează membrii prezenți și cenzorul.')),
-  zonaPuncte,
-  h('div', { class: 'card' }, h('label', {}, 'Observații', observatii)),
+  h('div', { class: 'pv-grila' },
+    h('div', { class: 'card editor-pv' }, ed.bara, ed.aud, ta, ed.previz),
+    h('aside', { class: 'pv-lateral' },
+      h('div', { class: 'card' },
+        h('h2', {}, ic('users'), ' Ședința'),
+        h('dl', { class: 'detalii' },
+          h('dt', {}, 'Data'), h('dd', {}, `${fmtData(s.data)}, ora ${s.ora}`),
+          h('dt', {}, 'Participanți'), h('dd', {}, participantiPV.map((u) => eticheta(u)).join(', ') || '— (nimeni nu a marcat prezența)'),
+          h('dt', {}, 'Cvorum'), h('dd', {}, `${cv.prezenti} din ${cv.membri} membri (necesar ${cv.necesar}) — ${cv.intrunit ? 'întrunit' : 'neîntrunit'}`),
+          h('dt', {}, 'Semnează'), h('dd', {}, semnatari.map((u) => eticheta(u)).join(', ')))),
+      h('div', { class: 'card' }, h('h2', {}, ic('notebook'), ' Ordinea de zi'), ed.salt),
+      h('div', { class: 'card' }, ed.ajutor),
+      h('div', { class: 'card' }, h('label', {}, 'Observații', observatii)))),
   eroare,
-  dictarePV({ zonaPuncte, punctNou, decizieNoua, prezenti: cv.prezenti, dataSedinta: s.data }),
   h('div', { class: 'actiuni' },
     h('button', { type: 'submit', class: 'principal' }, 'Salvează procesul-verbal'),
     h('a', { href: `#/admin/sedinte/${an}/${s.nr}`, class: 'buton' }, 'Renunță')));
   afiseaza('sedinte', h('h1', {}, existent ? `Proces-verbal nr. ${existent.nr}/${an}` : `Proces-verbal — ședința ${s.nr}/${an}`), form);
+  ed.porneste();
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) window.__pv = ed; // doar pentru teste locale
 }
 
-// Dictare vocală în procesul-verbal: comenzile („consemnează …”, „decizie …”, „vot …”, „responsabil …”,
-// „termen …”, „punct nou …”, „punctul 2”, „șterge ultima”) completează formularul de mai sus.
-// Nimic nu se salvează până la „Salvează procesul-verbal”. Vezi docs/plans/plan-dictare-vocala.md.
-function dictarePV({ zonaPuncte, punctNou, decizieNoua, prezenti, dataSedinta }) {
-  const puncte = () => [...zonaPuncte.querySelectorAll('fieldset.punct')];
-  const deciziiDin = (f) => [...f.querySelectorAll('.decizie')];
-  let iPunct = 0;
-  let decizie = null;
-  const anulari = [];
+// Editorul: comenzile vocale și butoanele modifică textul din `ta`. Vezi docs/plans/plan-dictare-vocala.md.
+//   text fără comandă → la cursor        „consemnează [text]” → la discuțiile punctului, deasupra deciziilor
+//   „decizie [text]” → rând „Decizie:”  „vot / responsabil / termen …” → la decizia curentă (înlocuiește)
+//   „decizia 2 / următoare / anterioară”, „punctul 2 / următor”, „punct nou …”, „rând nou”, „șterge ultima”
+function editorPV({ ta, prezenti, dataSedinta, roluri }) {
+  const istoric = [];
+  const aud = h('div', { class: 'pv-aud' });
+  const audEt = h('span', { class: 'eticheta' }, 'Microfon oprit');
+  const audText = h('span', { class: 'text' }, dictareSuportata()
+    ? 'Apasă microfonul și vorbește, sau scrie direct în foaie.'
+    : 'Dictarea vocală nu merge în acest browser (merge în Chrome, Edge și Safari). Scrie direct în foaie.');
+  aud.append(audEt, audText);
+  const salt = h('div', { class: 'pv-salt' });
+  const previz = h('div', { class: 'pv-previz', hidden: true });
+  const undo = h('button', { type: 'button', class: 'mic-btn', title: 'Anulează ultima modificare dictată', 'aria-label': 'Anulează ultima modificare dictată', disabled: true }, ic('arrow-back-up'));
+  const mic = h('button', { type: 'button', class: 'pv-mic', 'aria-pressed': 'false', 'aria-label': 'Pornește sau oprește dictarea', hidden: !dictareSuportata() }, ic('microphone'));
+  const vedEdit = h('button', { type: 'button', 'aria-pressed': 'true' }, 'Editează');
+  const vedPrev = h('button', { type: 'button', 'aria-pressed': 'false' }, 'Previzualizare');
 
-  const tinta = h('div', { class: 'dictare-tinta' });
-  const mesaj = h('div', { class: 'dictare-mesaj', role: 'status', 'aria-live': 'polite' });
-  const undo = h('button', { type: 'button', class: 'dictare-undo', title: 'Anulează ultima modificare dictată' }, ic('arrow-back-up'), 'Anulează');
-  const mic = h('button', { type: 'button', class: 'dictare-mic', 'aria-pressed': 'false', 'aria-label': 'Dictează: ține apăsat sau atinge o dată' }, ic('microphone'));
+  const aviz = (tip, text) => { audText.className = `text ${tip}`; audText.textContent = text; };
+  const fmtZi = (iso) => iso.split('-').reverse().join('.');
 
-  const marcheaza = () => {
-    if (decizie && !decizie.isConnected) decizie = null;
-    const lista = puncte();
-    iPunct = Math.min(iPunct, lista.length - 1);
-    lista.forEach((f, i) => f.classList.toggle('curent', i === iPunct));
-    zonaPuncte.querySelectorAll('.decizie').forEach((d) => d.classList.toggle('curenta', d === decizie));
-    const f = lista[iPunct];
-    tinta.replaceChildren('Scrie la ', h('strong', {}, `punctul ${iPunct + 1}`),
-      decizie ? ` · decizia ${deciziiDin(f).indexOf(decizie) + 1}` : '', ` — ${f?.dataset.titlu || ''}`);
-    undo.disabled = !anulari.length;
+  // ---- structura textului ----
+  const sectiuni = () => {
+    const re = /^(\d+)\.\s+(.+)$/gm; const out = []; let m;
+    while ((m = re.exec(ta.value))) out.push({ nr: Number(m[1]), titlu: m[2], start: m.index, corp: m.index + m[0].length });
+    out.forEach((x, i) => { x.end = i + 1 < out.length ? out[i + 1].start : ta.value.length; });
+    return out;
   };
-  const clipeste = (el) => {
-    el.classList.remove('clipeste');
-    void el.offsetWidth;
-    el.classList.add('clipeste');
-    el.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const sectiuneaLa = (poz) => { const s = sectiuni(); let i = 0; s.forEach((x, k) => { if (poz >= x.start) i = k; }); return { s, i, x: s[i] }; };
+  const tai = (e, min) => { while (e > min && /\s/.test(ta.value[e - 1])) e--; return e; };
+  const sfarsit = (x) => tai(x.end, x.corp);
+  const sfarsitDiscutii = (x) => {
+    const m = ta.value.slice(x.corp, x.end).match(/^Decizie:/im);
+    return m ? tai(x.corp + m.index, x.corp) : sfarsit(x);
   };
-  let temporizator;
-  const arata = (tip, text, buton) => {
-    clearTimeout(temporizator);
-    mesaj.replaceChildren(text ? h('div', { class: `dictare-aviz ${tip}` }, h('span', {}, text), buton) : '');
-    if (text && tip !== 'interim') temporizator = setTimeout(() => mesaj.replaceChildren(), 8000);
+  const decizii = (x) => {
+    const corp = ta.value.slice(x.corp, x.end); const re = /^Decizie:.*$/gim; const ds = []; let m;
+    while ((m = re.exec(corp))) ds.push({ start: x.corp + m.index, text: m[0].replace(/^Decizie:\s*/i, '') });
+    ds.forEach((d, i) => { d.end = tai(i + 1 < ds.length ? ds[i + 1].start : x.end, d.start); });
+    return ds;
+  };
+  // Decizia pe care e cursorul; din discuții se ia ultima decizie a punctului.
+  const decizieCurenta = (x, poz = ta.selectionStart) => {
+    const ds = decizii(x); let k = -1;
+    ds.forEach((d, i) => { if (poz >= d.start) k = i; });
+    if (k < 0 && ds.length) k = ds.length - 1;
+    return { ds, k };
   };
 
+  // ---- modificări ----
+  const salveazaStare = () => { istoric.push({ v: ta.value, c: ta.selectionStart }); if (istoric.length > 200) istoric.shift(); undo.disabled = false; };
+  const muta = (p) => { ta.focus(); ta.selectionStart = ta.selectionEnd = p; deseneazaSalt(); };
+  const insereaza = (poz, text) => { ta.setRangeText(text, poz, poz, 'end'); muta(poz + text.length); };
+  const peRand = (poz, text) => (poz === 0 || ta.value[poz - 1] === '\n' ? '' : '\n') + text;
+  const puneCamp = (x, eticheta, valoare) => {
+    const { ds, k } = decizieCurenta(x);
+    if (k < 0) return 'Spune întâi „decizie”, apoi votul, responsabilul sau termenul.';
+    const d = ds[k];
+    const m = ta.value.slice(d.start, d.end).match(new RegExp(`^${eticheta}:.*$`, 'im'));
+    const linie = `${eticheta}: ${valoare}`;
+    if (m) { const a = d.start + m.index; ta.setRangeText(linie, a, a + m[0].length, 'end'); muta(a + linie.length); } else insereaza(d.end, peRand(d.end, linie));
+    return null;
+  };
   const anuleaza = () => {
-    if (!anulari.length) { arata('err', 'Nu e nimic de anulat.'); return; }
-    anulari.pop()();
-    marcheaza();
-    arata('ok', 'Ultima modificare dictată a fost anulată.');
+    const u = istoric.pop();
+    if (!u) { aviz('err', 'Nu e nimic de anulat.'); return; }
+    ta.value = u.v; muta(u.c); undo.disabled = !istoric.length;
+    aviz('ok', 'Ultima modificare dictată a fost anulată.');
   };
 
-  const aplica = (text) => {
-    const facute = [];
-    const erori = [];
-    const necunoscute = [];
-    const avertizari = [];
-    let pas = [];
-    const inchidePas = () => { if (pas.length) { const p = pas; anulari.push(() => p.reverse().forEach((fn) => fn())); pas = []; } };
-    const tinePozitia = () => { const [p, d] = [iPunct, decizie]; pas.push(() => { iPunct = p; decizie = d; }); };
-    const camp = (el, valoare) => { const vechi = el.value; pas.push(() => { el.value = vechi; }); el.value = valoare; clipeste(el); };
-    const cuDecizie = (fn) => (decizie ? fn() : erori.push('Spune întâi „decizie …”, apoi votul, responsabilul sau termenul.'));
-
-    for (const c of parseaza(text)) {
-      const f = puncte()[iPunct];
+  const aplica = (enunt) => {
+    if (!previz.hidden) vedere(false);
+    const comenzi = parseaza(enunt);
+    if (!comenzi.length) return;
+    if (comenzi.some((c) => c.tip === 'sterge ultima')) { anuleaza(); return; }
+    salveazaStare();
+    const facute = []; const erori = [];
+    for (const c of comenzi) {
+      const { s, i, x } = sectiuneaLa(ta.selectionStart);
+      if (!x && c.tip !== 'punct nou') { erori.push('Procesul-verbal nu are niciun punct. Spune „punct nou …”.'); break; }
       switch (c.tip) {
-        case 'necunoscut': necunoscute.push(c.text); break;
+        case 'text': {
+          const p = ta.selectionStart;
+          const randCurent = ta.value.slice(ta.value.lastIndexOf('\n', p - 1) + 1, p);
+          const dupaCamp = /^(Vot|Responsabil|Termen):\s*\S/i.test(randCurent);
+          const lipit = p === 0 || /[\n ]/.test(ta.value[p - 1]);
+          insereaza(p, (dupaCamp ? '\n' : lipit ? '' : ' ') + fraza(c.rest));
+          facute.push('Scris la cursor');
+          break;
+        }
         case 'consemneaza': {
-          if (!c.rest) { erori.push('Spune ce să consemnez după „consemnează”.'); break; }
-          const ta = f.querySelector('[data-k=discutii]');
-          camp(ta, ta.value.trim() ? `${ta.value.trimEnd()}\n${fraza(c.rest)}` : fraza(c.rest));
-          facute.push(`Consemnat la punctul ${iPunct + 1}`);
-          break;
-        }
-        case 'punct nou': {
-          const titlu = fraza(c.rest).replace(/\.$/, '') || 'Diverse';
-          const nou = punctNou({ titlu, discutii: '', decizii: [] });
-          tinePozitia();
-          zonaPuncte.append(nou);
-          pas.push(() => nou.remove());
-          iPunct = puncte().length - 1;
-          decizie = null;
-          clipeste(nou);
-          facute.push(`Punct nou: ${iPunct + 1}. ${titlu}`);
-          break;
-        }
-        case 'punctul urmator':
-        case 'punctul': {
-          const k = c.tip === 'punctul' ? c.nr : iPunct + 2;
-          if (!k || k > puncte().length) { erori.push(c.tip === 'punctul' ? `Nu există punctul ${c.nr ?? ''}.` : 'Nu mai există un punct următor. Spune „punct nou …”.'); break; }
-          tinePozitia();
-          iPunct = k - 1;
-          decizie = null;
-          clipeste(puncte()[iPunct]);
-          facute.push(`Acum la punctul ${k}`);
+          const p = sfarsitDiscutii(x);
+          insereaza(p, c.rest ? peRand(p, fraza(c.rest)) : '\n');
+          facute.push(c.rest ? `Consemnat la discuțiile punctului ${x.nr}` : `Scrii la discuțiile punctului ${x.nr}, deasupra deciziilor`);
           break;
         }
         case 'decizie': {
-          if (!c.rest) { erori.push('Spune textul deciziei după „decizie”.'); break; }
-          const d = decizieNoua({ text: fraza(c.rest) });
-          tinePozitia();
-          f.querySelector('.decizii').append(d);
-          pas.push(() => d.remove());
-          decizie = d;
-          clipeste(d);
-          facute.push(`Decizie adăugată la punctul ${iPunct + 1}`);
+          const p = sfarsit(x);
+          insereaza(p, peRand(p, c.rest ? `Decizie: ${fraza(c.rest)}` : 'Decizie: '));
+          facute.push(c.rest ? `Decizie adăugată la punctul ${x.nr}` : `Decizie nouă la punctul ${x.nr}: dictează textul ei`);
           break;
         }
-        case 'vot': cuDecizie(() => {
-          if (/\bunanim/.test(c.restN) && !prezenti) { erori.push('„Vot unanim” are nevoie de prezență marcată. Spune voturile: „vot 4 pentru 0 împotrivă 0 abțineri”.'); return; }
+        case 'vot': {
+          if (/\bunanim/.test(c.restN) && !prezenti) { erori.push('„Vot unanim” are nevoie de prezență marcată. Spune voturile: „vot 4 pentru 0 împotrivă 0 abțineri”.'); break; }
           const v = parseazaVot(c.restN, prezenti);
-          if (!v) { erori.push('N-am înțeles votul. Exemplu: „vot 4 pentru 1 împotrivă 0 abțineri” sau „vot unanim”.'); return; }
-          for (const k of ['pentru', 'impotriva', 'abtineri']) camp(decizie.querySelector(`[data-k=${k}]`), String(v[k]));
-          facute.push(`Vot ${v.pentru} pentru, ${v.impotriva} împotrivă, ${v.abtineri} abțineri`);
+          if (!v) { erori.push('N-am înțeles votul. Exemplu: „vot 4 pentru 1 împotrivă 0 abțineri” sau „vot unanim”.'); break; }
+          const e = puneCamp(x, 'Vot', `${v.pentru} pentru, ${v.impotriva} împotrivă, ${v.abtineri} abțineri.`);
+          if (e) { erori.push(e); break; }
+          facute.push(`Vot ${v.pentru}–${v.impotriva}–${v.abtineri} la decizia ${decizieCurenta(x).k + 1}`);
           const total = v.pentru + v.impotriva + v.abtineri;
-          if (total > prezenti) avertizari.push(`Atenție: ${total} voturi, dar sunt ${prezenti} membri prezenți.`);
-        }); break;
-        case 'responsabil': cuDecizie(() => {
-          const id = potrivesteRol(c.restN, ROLURI);
-          if (!id) { erori.push(`N-am găsit rolul „${c.rest}”. Exemplu: „responsabil curățenie”.`); return; }
-          camp(decizie.querySelector('[data-k=responsabil]'), id);
-          facute.push(`Responsabil: ${numeRol(id)}`);
-        }); break;
-        case 'termen': cuDecizie(() => {
+          if (total > prezenti) erori.push(`Atenție: ${total} voturi, dar sunt ${prezenti} membri prezenți.`);
+          break;
+        }
+        case 'responsabil': {
+          const id = potrivesteRol(c.restN, roluri);
+          if (!id) { erori.push(`N-am găsit rolul „${c.rest}”. Exemplu: „responsabil curățenie”.`); break; }
+          const e = puneCamp(x, 'Responsabil', `${numeRol(id)}.`);
+          if (e) erori.push(e); else facute.push(`Responsabil: ${numeRol(id)}`);
+          break;
+        }
+        case 'termen': {
           const t = parseazaTermen(c.restN, dataSedinta);
-          if (!t) { erori.push('N-am înțeles data. Exemplu: „termen 30 octombrie” sau „termen peste 10 zile”.'); return; }
-          camp(decizie.querySelector('[data-k=termen]'), t);
-          facute.push(`Termen: ${fmtData(t)}`);
-        }); break;
-        case 'sterge ultima':
-          inchidePas();
-          anuleaza();
-          return;
+          if (!t) { erori.push('N-am înțeles data. Exemplu: „termen 30 octombrie” sau „termen peste 10 zile”.'); break; }
+          const e = puneCamp(x, 'Termen', `${fmtZi(t)}.`);
+          if (e) erori.push(e); else facute.push(`Termen: ${fmtZi(t)}`);
+          break;
+        }
+        case 'decizia': {
+          const { ds, k } = decizieCurenta(x);
+          const tinta = c.nr != null ? c.nr - 1 : k + c.dir;
+          if (!ds[tinta]) { erori.push(ds.length ? `Punctul ${x.nr} are ${ds.length === 1 ? 'o decizie' : `${ds.length} decizii`}.` : `Punctul ${x.nr} nu are decizii.`); break; }
+          muta(ds[tinta].end);
+          facute.push(`La decizia ${tinta + 1} de la punctul ${x.nr}`);
+          break;
+        }
+        case 'punctul':
+        case 'punctul urmator': {
+          const tinta = c.tip === 'punctul' ? (c.nr ?? 0) - 1 : i + 1;
+          if (!s[tinta]) { erori.push(c.tip === 'punctul' ? `Nu există punctul ${c.nr ?? ''}.` : 'Nu mai există un punct următor. Spune „punct nou …”.'); break; }
+          muta(sfarsitDiscutii(s[tinta]));
+          facute.push(`La punctul ${s[tinta].nr}`);
+          break;
+        }
+        case 'punct nou': {
+          const titlu = fraza(c.rest || 'Diverse').replace(/\.$/, '');
+          const p = tai(ta.value.length, 0);
+          insereaza(p, `${p ? '\n\n' : ''}${s.length + 1}. ${titlu}\n`);
+          facute.push(`Punct nou: ${s.length + 1}. ${titlu}`);
+          break;
+        }
+        case 'rand nou':
+          insereaza(ta.selectionStart, '\n');
+          facute.push('Rând nou');
+          break;
         default: break;
       }
     }
-    inchidePas();
-    marcheaza();
-    if (necunoscute.length) {
-      const t = necunoscute.join(' ');
-      arata('err', [...facute, ...erori, ...avertizari, `Nu e o comandă: „${t}”`].join(' · '),
-        h('button', { type: 'button', class: 'link', onclick: () => aplica(`consemnează ${t}`) }, 'Consemnează'));
-    } else if (erori.length) arata('err', [...facute, ...erori, ...avertizari].join(' · '));
-    else if (facute.length) {
-      arata(avertizari.length ? 'avert' : 'ok', [...facute, ...avertizari].join(' · '),
-        h('button', { type: 'button', class: 'link', onclick: anuleaza }, 'Anulează'));
-    }
+    if (istoric.length && istoric[istoric.length - 1].v === ta.value) istoric.pop();
+    undo.disabled = !istoric.length;
+    aviz(erori.length ? 'err' : 'ok', [...facute, ...erori].join(' · '));
   };
 
-  // Clic într-un punct sau într-o decizie îl face curent.
-  zonaPuncte.addEventListener('focusin', (ev) => {
-    const f = ev.target.closest('fieldset.punct');
-    if (!f) return;
-    iPunct = puncte().indexOf(f);
-    decizie = ev.target.closest('.decizie');
-    marcheaza();
-  });
-  undo.addEventListener('click', anuleaza);
+  // ---- ordinea de zi și deciziile, pentru salt ----
+  const deseneazaSalt = () => {
+    const s = sectiuni(); const poz = ta.selectionStart; const { i } = sectiuneaLa(poz);
+    salt.replaceChildren(...s.flatMap((x, k) => {
+      const ds = decizii(x);
+      let kd = -1; if (k === i) ds.forEach((d, j) => { if (poz >= d.start) kd = j; });
+      return [
+        h('button', { type: 'button', class: k === i && kd < 0 ? 'curent' : null, onclick: () => muta(sfarsitDiscutii(x)) }, `${x.nr}. ${x.titlu}`),
+        ...ds.map((d, j) => h('button', { type: 'button', class: `dec${k === i && j === kd ? ' curent' : ''}`, onclick: () => muta(d.end) }, `Decizia ${j + 1}: ${d.text || '…'}`)),
+      ];
+    }));
+  };
 
-  // Microfon: tap scurt = rămâne pornit până la următorul tap; ținut apăsat = ascultă până la eliberare.
+  // ---- previzualizare ----
+  const deseneazaPreviz = () => {
+    const { puncte, erori } = textInPV(ta.value, { roluri, dataSedinta });
+    previz.replaceChildren(
+      erori.length ? h('div', { class: 'avertizare' }, h('strong', {}, 'De corectat înainte de salvare:'), h('ul', {}, erori.map((e) => h('li', {}, e)))) : null,
+      ...puncte.map((p, i) => h('section', {},
+        h('h3', {}, `${i + 1}. ${p.titlu}`),
+        p.discutii ? h('p', { class: 'text-lung' }, p.discutii) : h('p', { class: 'slab' }, 'Fără discuții consemnate.'),
+        p.decizii.map((d, j) => h('div', { class: 'decizie' },
+          h('strong', {}, `Decizia ${j + 1}: `), h('span', { class: 'text-lung' }, d.text || '—'),
+          h('div', { class: 'vot' },
+            d.pentru != null && h('span', { class: 'eticheta stare-raspuns_trimis' }, `pentru ${d.pentru}`),
+            d.pentru != null && h('span', { class: 'eticheta termen-aproape' }, `abțineri ${d.abtineri}`),
+            d.pentru != null && h('span', { class: 'eticheta' }, `împotrivă ${d.impotriva}`),
+            d.responsabil && h('span', { class: 'slab mic' }, `Responsabil: ${numeRol(d.responsabil)}`),
+            d.termen && h('span', { class: 'slab mic' }, `Termen: ${fmtZi(d.termen)}`)))))));
+  };
+  const vedere = (prev) => {
+    vedEdit.setAttribute('aria-pressed', String(!prev));
+    vedPrev.setAttribute('aria-pressed', String(prev));
+    ta.hidden = prev;
+    previz.hidden = !prev;
+    if (prev) deseneazaPreviz(); else ta.focus();
+  };
+  vedEdit.addEventListener('click', () => vedere(false));
+  vedPrev.addEventListener('click', () => vedere(true));
+
+  // ---- butoane ----
+  const butonCamp = (text, fn) => h('button', { type: 'button', class: 'pv-unealta', onclick: () => { if (!previz.hidden) vedere(false); fn(); } }, ic('plus'), text);
+  const cuSectiune = (fn) => () => { const { x } = sectiuneaLa(ta.selectionStart); if (!x) { aviz('err', 'Adaugă întâi un punct.'); return; } salveazaStare(); const e = fn(x); if (e) { istoric.pop(); undo.disabled = !istoric.length; aviz('err', e); } };
+  const unelte = h('div', { class: 'pv-unelte' },
+    mic,
+    butonCamp('Decizie', () => aplica('decizie')),
+    butonCamp('Vot', cuSectiune((x) => puneCamp(x, 'Vot', '_ pentru, _ împotrivă, _ abțineri.'))),
+    butonCamp('Responsabil', cuSectiune((x) => puneCamp(x, 'Responsabil', ''))),
+    butonCamp('Termen', cuSectiune((x) => puneCamp(x, 'Termen', ''))),
+    undo,
+    h('span', { class: 'umple' }),
+    h('div', { class: 'pv-vederi' }, vedEdit, vedPrev));
+  undo.addEventListener('click', anuleaza);
+  ['click', 'keyup', 'input'].forEach((e) => ta.addEventListener(e, deseneazaSalt));
+
+  // ---- microfon ----
   const dictare = new Dictare({
-    onFinal: aplica,
-    onInterim: (t) => { if (t) arata('interim', `„${t}”`); },
-    onEroare: (m) => arata('err', m),
+    onEnunt: aplica,
+    onAud: (t) => { if (t) { audEt.textContent = 'Aud'; audEt.className = 'eticheta termen-aproape'; aviz('', `„${t}”`); } },
+    onEroare: (m) => aviz('err', m),
     onStare: (on) => {
       mic.classList.toggle('asculta', on);
       mic.setAttribute('aria-pressed', String(on));
-      if (on) arata('interim', 'Ascult… (sunetul e recunoscut de browser și nu se păstrează)');
+      audEt.textContent = on ? 'Ascult' : 'Microfon oprit';
+      audEt.className = on ? 'eticheta stare-raspuns_trimis' : 'eticheta';
+      if (on) aviz('', 'Vorbește. Textul se scrie după o scurtă pauză. Sunetul e recunoscut de browser și nu se păstrează.');
     },
   });
-  let apasatLa = 0;
-  let porneste = false;
-  mic.addEventListener('pointerdown', (ev) => {
-    ev.preventDefault();
-    apasatLa = Date.now();
-    porneste = !dictare.asculta;
-    if (porneste) dictare.porneste();
-  });
-  mic.addEventListener('pointerup', () => {
-    if (!porneste || Date.now() - apasatLa > 400) dictare.opreste();
-  });
-  mic.addEventListener('keydown', (ev) => {
-    if (ev.key !== ' ' && ev.key !== 'Enter') return;
-    ev.preventDefault();
-    if (dictare.asculta) dictare.opreste(); else dictare.porneste();
-  });
-  // Ieșirea din pagină oprește microfonul.
+  mic.addEventListener('click', () => (dictare.asculta ? dictare.opreste() : dictare.porneste()));
   window.addEventListener('hashchange', () => dictare.opreste(), { once: true });
 
-  const scrie = h('input', { type: 'text', 'aria-label': 'Încearcă o comandă scrisă', placeholder: 'ex.: decizie se aprobă oferta, vot unanim' });
-  const trimiteScris = () => { const t = scrie.value.trim(); if (t) { scrie.value = ''; aplica(t); } };
-  scrie.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); trimiteScris(); } });
-
-  const ajutor = h('details', { class: 'dictare-ajutor' },
-    h('summary', {}, ic('help-circle'), 'Comenzi vocale'),
-    h('p', { class: 'slab mic' }, 'Ține apăsat microfonul și vorbește, sau atinge-l o dată ca să rămână pornit. Poți lega comenzile într-o frază: „decizie se aprobă oferta, vot unanim, responsabil curățenie, termen 30 octombrie”.'),
+  const ajutor = h('details', { class: 'pv-ajutor' },
+    h('summary', {}, ic('help-circle'), ' Comenzi vocale'),
     h('dl', { class: 'detalii' },
-      h('dt', {}, '„consemnează …”'), h('dd', {}, 'adaugă textul la discuțiile punctului curent (și „notează …”)'),
-      h('dt', {}, '„decizie …”'), h('dd', {}, 'adaugă o decizie la punctul curent (și „hotărâre …”)'),
-      h('dt', {}, '„vot 4 pentru 1 împotrivă 0 abțineri”'), h('dd', {}, 'votul deciziei curente; „vot unanim” = toți membrii prezenți pentru'),
-      h('dt', {}, '„responsabil …”'), h('dd', {}, 'de exemplu „responsabil curățenie”, „responsabil administrator”'),
+      h('dt', {}, '(orice text)'), h('dd', {}, 'se scrie unde e cursorul'),
+      h('dt', {}, '„consemnează [text]”'), h('dd', {}, 'la discuțiile punctului curent, deasupra deciziilor; singur, mută acolo cursorul'),
+      h('dt', {}, '„decizie [text]”'), h('dd', {}, 'rând nou „Decizie:”; textul e opțional, îl poți dicta după'),
+      h('dt', {}, '„vot 4 pentru 1 împotrivă 0 abțineri”'), h('dd', {}, 'sau „vot unanim”; la decizia curentă, înlocuiește votul vechi'),
+      h('dt', {}, '„responsabil …”'), h('dd', {}, 'de exemplu „responsabil curățenie”'),
       h('dt', {}, '„termen …”'), h('dd', {}, '„30 octombrie”, „30.10”, „peste 10 zile”, „sfârșitul lunii”'),
-      h('dt', {}, '„punctul 2” / „punctul următor”'), h('dd', {}, 'schimbă punctul curent (sau atinge punctul în formular)'),
-      h('dt', {}, '„punct nou …”'), h('dd', {}, 'adaugă un punct care nu era pe ordinea de zi'),
-      h('dt', {}, '„șterge ultima”'), h('dd', {}, 'anulează ultima modificare dictată (și „anulează”)')),
-    h('p', { class: 'slab mic' }, 'Ce nu începe cu o comandă nu se scrie singur: primești un buton „Consemnează”. Sunetul e recunoscut de browser (Chrome: Google, Edge: Microsoft, Safari: Apple); aplicația nu înregistrează și nu păstrează nimic.'),
-    h('div', { class: 'dictare-scris' }, scrie, h('button', { type: 'button', onclick: trimiteScris }, 'Aplică')));
+      h('dt', {}, '„decizia 2” / „decizia următoare” / „decizia anterioară”'), h('dd', {}, 'revii la o decizie a punctului curent'),
+      h('dt', {}, '„punctul 2” / „punctul următor”'), h('dd', {}, 'mută cursorul la alt punct'),
+      h('dt', {}, '„punct nou …”'), h('dd', {}, 'un punct care nu era pe ordinea de zi'),
+      h('dt', {}, '„rând nou”'), h('dd', {}, 'trece pe rândul următor'),
+      h('dt', {}, '„șterge ultima”'), h('dd', {}, 'anulează ultima dictare')),
+    h('p', { class: 'slab mic' }, 'La tastatură scrii la fel: „Decizie:”, „Vot:”, „Responsabil:”, „Termen:” la început de rând. Sunetul e recunoscut de browser (Chrome: Google, Edge: Microsoft, Safari: Apple); aplicația nu înregistrează nimic.'));
 
-  const bara = h('div', { class: 'card dictare nu-tipari' },
-    mesaj,
-    h('div', { class: 'dictare-rand' },
-      dictareSuportata() ? mic : null,
-      dictareSuportata() ? tinta : h('p', { class: 'slab mic dictare-tinta' }, 'Dictarea vocală nu merge în acest browser (merge în Chrome, Edge și Safari). Poți folosi microfonul din tastatura telefonului.'),
-      undo),
-    ajutor);
-  queueMicrotask(marcheaza);
-  return bara;
+  return {
+    bara: unelte, aud, previz, salt, ajutor,
+    opreste: () => dictare.opreste(),
+    porneste: () => { deseneazaSalt(); muta(sectiuni()[0] ? sfarsitDiscutii(sectiuni()[0]) : 0); ta.scrollTop = 0; },
+    aplica, // pentru teste
+  };
 }
 
 async function deschideFormular(an, nr, fn) {
