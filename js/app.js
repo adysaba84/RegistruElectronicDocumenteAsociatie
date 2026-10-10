@@ -1,12 +1,12 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=7';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=7';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=8';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=8';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=7';
+} from './store.js?v=8';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=7';
+} from './config.js?v=8';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -176,7 +176,7 @@ function cadru(activ, ...continut) {
     h('main', {},
       S.mesaj && h('p', { class: 'succes', role: 'status' }, S.mesaj),
       S.reg?.eroarePublicare && eAdministratie() && h('p', { class: 'avertizare' },
-        `Pagina publică nu s-a putut actualiza (${mesajEroare(S.reg.eroarePublicare)}). Deschide o sesizare și apasă „Republică”.`),
+        `Pagina publică nu s-a putut actualiza (${mesajEroare(S.reg.eroarePublicare)}). Deschide o sesizare și apasă „Actualizează pagina publică”.`),
       continut),
     h('footer', { class: 'subsol' }, `${ASOCIATIA.nume} · ${ASOCIATIA.adresa} · ${ASOCIATIA.email}`),
   ];
@@ -800,7 +800,7 @@ async function paginaAdminDetaliu(an, nr) {
     if (x.stare === 'raspuns_trimis') act.push(h('button', { onclick: actiune(() => S.reg.inchide(an, nr, prompt('Notă de închidere (opțional, apare public):') || ''), 'Sesizarea a fost închisă.') }, 'Închide (rezolvată)'));
     if (x.stare === 'inchisa') act.push(h('button', { onclick: actiune(() => S.reg.redeschide(an, nr), 'Sesizarea a fost redeschisă.') }, 'Redeschide'));
     if (!finala) act.push(h('button', { onclick: actiune(() => S.reg.seteazaListaLunara(an, nr, !x.listaLunara), 'Actualizat.') }, x.listaLunara ? 'Scoate de pe lista lunară' : 'Pune pe lista ședinței lunare'));
-    act.push(h('button', { onclick: actiune(() => S.reg.publica(an).then(() => { S.reg.eroarePublicare = null; }), 'Pagina publică a fost actualizată.') }, 'Republică'));
+    act.push(h('button', { onclick: actiune(() => S.reg.publica(an).then(() => { S.reg.eroarePublicare = null; }), 'Pagina publică a fost actualizată.') }, 'Actualizează pagina publică'));
   }
   if (poateNota()) {
     const nota = h('textarea', { rows: 2, placeholder: 'Notă internă (nu apare public)…', 'aria-label': 'Notă internă' });

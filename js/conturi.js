@@ -5,9 +5,9 @@
 // `cheie` = tokenul de acces la date, criptat cu parola utilizatorului. Parolele nu se
 // stochează nicăieri; fără parola corectă cheia nu se poate decripta.
 
-import { GitHubRepo } from './github.js?v=7';
-import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=7';
-import { REPO_PUBLIC, REPO_DATE, ROLURI, APARTAMENTE } from './config.js?v=7';
+import { GitHubRepo } from './github.js?v=8';
+import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=8';
+import { REPO_PUBLIC, REPO_DATE, ROLURI, APARTAMENTE } from './config.js?v=8';
 
 const FISIER = 'conturi.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
