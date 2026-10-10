@@ -1,19 +1,19 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=17';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=17';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=18';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=18';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
-} from './store.js?v=17';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=17';
+} from './store.js?v=18';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=18';
 import {
-  Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=17';
+  Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, inchisa, cvorum, inceput, zileIntre,
+} from './sedinte.js?v=18';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=17';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=17';
-import { pvInText, textInPV } from './pv-text.js?v=17';
-import { Dictare, dictareSuportata } from './dictare.js?v=17';
+} from './config.js?v=18';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=18';
+import { pvInText, textInPV } from './pv-text.js?v=18';
+import { Dictare, dictareSuportata } from './dictare.js?v=18';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -158,6 +158,7 @@ function cadru(activ, ...continut) {
       link('#/admin', 'home', 'Ale mele', 'admin'),
       link('#/admin/sesizare-noua', 'plus', 'Sesizare nouă', 'sesizare-noua'),
       link('#/', 'list', 'Toate', 'public'),
+      link('#/avizier', 'gavel', 'Avizier', 'avizier'),
     ]
     : conectat()
     ? [
@@ -166,7 +167,7 @@ function cadru(activ, ...continut) {
       link('#/admin/registru', 'notebook', 'Registru', 'registru'),
       participaLaSedinte() && link('#/admin/sedinte', 'calendar', 'Ședințe', 'sedinte'),
       ePresedinte() && link('#/admin/utilizatori', 'users', 'Utilizatori', 'utilizatori'),
-      link('#/', 'list', 'Public', 'public'),
+      link('#/avizier', 'gavel', 'Avizier', 'avizier'),
     ]
     : [
       link('#/', 'home', 'Sesizări', 'public'),
@@ -1310,12 +1311,25 @@ async function formularConvocare(s, an) {
   verificaTermen();
 }
 
+// Tipărirea / PDF-ul unui proces-verbal: se tipăresc doar blocurile marcate `de-tipar`
+// (PDF-ul se obține din fereastra de tipărire: „Salvează ca PDF”).
+function tiparestePV() {
+  document.body.classList.add('tipar-pv');
+  window.addEventListener('afterprint', () => document.body.classList.remove('tipar-pv'), { once: true });
+  window.print();
+}
+const butonTiparPV = () => h('button', { type: 'button', class: 'nu-tipari', onclick: tiparestePV }, ic('printer'), 'Tipărește / salvează PDF');
+const subsolTiparPV = (s, an) => h('p', { class: 'doar-tipar mic subsol-tipar' },
+  `Generat din registrul electronic al asociației la ${fmtDataOra(new Date().toISOString())}.`,
+  inchisa(s) ? ` Verificare online: ${location.origin}${location.pathname}#/avizier/${an}/${s.nr}` : '');
+
 // Procesul-verbal, afișat la fel în administrație și la avizier.
 function vederePV(s, an) {
   const p = s.pv;
   const c = p.cvorum;
-  return h('div', { class: 'card pv' },
+  return h('div', { class: 'card pv de-tipar' },
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    !inchisa(s) && h('p', { class: 'doar-tipar ciorna' }, 'CIORNĂ — procesul-verbal nu este încă semnat de toți și închis.'),
     h('h2', {}, `Proces-verbal nr. ${p.nr}/${an}`),
     h('p', { class: 'slab' }, `Ședința comitetului executiv din ${fmtData(s.data)}, ora ${s.ora}.`),
     h('dl', { class: 'detalii' },
@@ -1333,6 +1347,21 @@ function vederePV(s, an) {
           d.responsabil && h('span', { class: 'slab mic' }, `Responsabil: ${numeRol(d.responsabil)}`),
           d.termen && h('span', { class: 'slab mic' }, `Termen: ${fmtData(d.termen)}`))))))),
     p.observatii && h('p', { class: 'text-lung' }, h('strong', {}, 'Observații: '), p.observatii));
+}
+
+// Procesul-verbal închis se înregistrează în registrul de intrare-ieșire (document intern), o singură dată.
+async function inregistreazaPV(an, nr) {
+  const s = (await S.sed.citesteAn(an)).sedinte.find((x) => x.nr === nr);
+  if (!s || s.inregistrare || !inchisa(s)) return;
+  const decizii = s.pv.puncte.reduce((n, p) => n + (p.decizii || []).length, 0);
+  const r = await S.reg.adaugaDocument({
+    tip: 'intern',
+    emitent: 'Comitetul executiv',
+    destinatar: 'Proprietari (avizier)',
+    continut: `Proces-verbal nr. ${s.pv.nr}/${an} al ședinței comitetului executiv din ${fmtData(s.data)} — ${decizii === 1 ? '1 decizie' : `${decizii} decizii`}`,
+    conexat: (s.sesizari || []).length ? `sesizările ${s.sesizari.join(', ')}` : '',
+  });
+  await S.sed.noteazaInregistrare(an, nr, { nr: r.x.nr, an: r.an });
 }
 
 async function paginaSedinta(an, nr) {
@@ -1394,28 +1423,40 @@ async function paginaSedinta(an, nr) {
     const textPV = continutPV(s, an);
     const semnat = s.semnaturi.find((x) => x.u === eu);
     blocuri.push(vederePV(s, an),
-      h('div', { class: 'card nu-tipari' },
+      h('div', { class: 'card de-tipar' },
         h('h2', {}, ic('fingerprint'), ' Semnături'),
         h('div', { class: 'lista-semnaturi' }, s.pv.semnatari.map((u) => {
           const sem = s.semnaturi.find((x) => x.u === u);
           return sem ? blocSemnatura(sem, textPV) : h('div', { class: 'semnatura asteapta' }, ic('clock'), h('div', {}, h('strong', {}, eticheta(u)), h('span', { class: 'mic' }, 'nesemnat')));
         })),
-        s.pv.semnatari.includes(eu) && !semnat && h('button', { class: 'principal', onclick: actiune(async () => {
+        s.pv.semnatari.includes(eu) && !semnat && stare !== 'afisata' && h('button', { class: 'principal nu-tipari', onclick: actiune(async () => {
           const sem = await semneazaCu(textPV);
           await S.sed.semneazaPV(an, nr, sem, (x) => hashB64u(continutPV(x, an)));
         }, 'Ai semnat procesul-verbal.') }, ic('fingerprint'), 'Semnează procesul-verbal'),
         stare === 'semnata' && h('p', { class: 'succes' }, 'Au semnat toți. Președintele închide procesul-verbal și îl afișează la avizier.'),
-        stare === 'semnata' && ePresedinte() && h('button', { class: 'principal', onclick: actiune(() => S.sed.inchidePV(an, nr), 'Procesul-verbal a fost închis și afișat la avizier.') },
+        stare === 'semnata' && ePresedinte() && h('button', { class: 'principal nu-tipari', onclick: actiune(async () => {
+          await S.sed.inchidePV(an, nr);
+          await inregistreazaPV(an, nr);
+        }, 'Procesul-verbal a fost închis, afișat la avizier și înregistrat în registrul de intrare-ieșire.') },
           ic('lock'), 'Închide și afișează la avizier'),
         stare === 'afisata' && h('p', { class: 'succes' }, ic('lock'), ' Închis și afișat la ', h('a', { href: `#/avizier/${an}/${nr}` }, 'avizier'),
           s.inchisaLa ? ` pe ${fmtDataOra(s.inchisaLa)}` : '', '. Nu se mai poate modifica.'),
-        stare !== 'afisata' && eMembruComitet() && h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton' }, ic('pencil'),
-          s.semnaturi.length ? 'Modifică (anulează semnăturile)' : 'Modifică procesul-verbal')));
+        stare === 'afisata' && s.inregistrare && h('p', { class: 'nu-tipari' }, ic('notebook'), ' Înregistrat în registrul de intrare-ieșire cu ',
+          h('a', { href: `#/admin/s/${s.inregistrare.an}/${s.inregistrare.nr}` }, `nr. ${s.inregistrare.nr}/${s.inregistrare.an}`), '.'),
+        h('div', { class: 'actiuni nu-tipari' },
+          butonTiparPV(),
+          stare !== 'afisata' && eMembruComitet() && h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton' }, ic('pencil'),
+            s.semnaturi.length ? 'Modifică (anulează semnăturile)' : 'Modifică procesul-verbal')),
+        subsolTiparPV(s, an)));
   } else if (eMembruComitet()) {
     blocuri.push(h('div', { class: 'card' },
       h('h2', {}, ic('file-text'), ' Proces-verbal'),
       h('p', { class: 'slab' }, 'După ședință, orice membru al comitetului redactează procesul-verbal. Primește automat numărul următor din registrul unic de procese-verbale.'),
       h('a', { href: `#/admin/sedinte/${an}/${nr}/pv`, class: 'buton principal' }, ic('pencil'), 'Redactează procesul-verbal')));
+  }
+
+  if (stare === 'afisata' && !s.inregistrare && ePresedinte()) {
+    inregistreazaPV(an, nr).then(() => { if (location.hash === `#/admin/sedinte/${an}/${nr}`) paginaSedinta(an, nr); }).catch(() => {});
   }
 
   afiseaza('sedinte',
@@ -1797,7 +1838,8 @@ async function paginaAvizier() {
   const lista = [...d.sedinte].sort((a, b) => b.pv.nr - a.pv.nr);
   afiseaza('avizier',
     h('h1', {}, 'Avizier ', selectAn(paginaAvizier)),
-    h('p', { class: 'slab' }, 'Deciziile comitetului executiv, din procesele-verbale semnate electronic de membrii prezenți și de cenzor.'),
+    h('p', { class: 'slab' }, 'Deciziile comitetului executiv, din procesele-verbale semnate electronic de membrii prezenți și de cenzor.',
+      conectat() && !eProprietar() ? [' ', h('a', { href: '#/' }, 'Vezi și pagina publică a sesizărilor.')] : null),
     lista.length
       ? h('ul', { class: 'lista-sesizari' }, lista.map((s) => h('li', {},
         h('a', { href: `#/avizier/${S.an}/${s.nr}`, class: 'rand-sesizare' },
@@ -1818,11 +1860,12 @@ async function paginaAvizierDetaliu(an, nr) {
     h('a', { href: '#/avizier', class: 'inapoi nu-tipari' }, ic('arrow-left'), 'Avizier'),
     h('h1', {}, `Proces-verbal nr. ${s.pv.nr}/${an}`),
     vederePV(s, an),
-    h('div', { class: 'card' },
+    h('div', { class: 'card de-tipar' },
       h('h2', {}, ic('shield-check'), ' Semnături electronice'),
       h('div', { class: 'lista-semnaturi' }, s.semnaturi.map((sem) => blocSemnatura(sem, text))),
       h('p', { class: 'slab mic' }, `Cod de verificare: ${codVerificare(await hashB64u(text).then((x) => [...unb64u(x)].map((b) => b.toString(16).padStart(2, '0')).join('')))}`),
-      h('button', { class: 'nu-tipari', onclick: () => window.print() }, 'Tipărește / salvează PDF')));
+      butonTiparPV(),
+      subsolTiparPV({ ...s, inchisaLa: s.inchisaLa || s.semnataLa }, an)));
 }
 
 // ---------- rutare ----------

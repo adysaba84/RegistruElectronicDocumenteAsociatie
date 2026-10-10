@@ -176,6 +176,20 @@ export class Sedinte {
     }, 'proces-verbal închis și afișat');
   }
 
+  // Numărul din registrul de intrare-ieșire al procesului-verbal închis. Singura scriere permisă după închidere.
+  noteazaInregistrare(an, nr, ref) {
+    return this.gh.transact(async (head) => {
+      const reg = await this.citesteAn(an, head);
+      const s = reg.sedinte.find((x) => x.nr === nr);
+      if (!s) throw new Error(`Ședința ${nr}/${an} nu există.`);
+      if (!s.inregistrare) {
+        s.inregistrare = ref;
+        this.istoric(s, `Înregistrat în registrul de intrare-ieșire cu nr. ${ref.nr}/${ref.an}`);
+      }
+      return { files: [{ path: cale(an), text: json(reg) }], result: { an, s } };
+    }, () => `Ședința ${nr}/${an}: proces-verbal înregistrat în registru (${this.cont.u})`);
+  }
+
   // Sesizările deja trecute pe ordinea de zi a unei ședințe din anul dat („nr/an”).
   async sesizariPeOrdine(an) {
     const reg = await this.citesteAn(an);

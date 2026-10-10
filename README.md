@@ -68,7 +68,13 @@ sesizările apartamentului lui.
 - **Închidere:** după ce au semnat toți, președintele apasă **„Închide și afișează la avizier”**. Abia atunci procesul-verbal
   devine public și nu se mai poate modifica nimic. (Ședințele semnate înainte de această regulă au fost afișate automat
   și sunt tratate ca închise.)
-- **Avizier** (public): procesele-verbale închise, cu verificarea semnăturilor; avertizare pentru termenul de 7 zile.
+- **Registru:** la închidere, procesul-verbal se înregistrează automat în registrul de intrare-ieșire (document intern,
+  emitent Comitetul executiv, conexat cu sesizările discutate). Dacă nu reușește atunci, se reîncearcă automat la
+  următoarea deschidere a ședinței de către președinte.
+- **Tipărire / PDF:** „Tipărește / salvează PDF” pe pagina ședinței și la avizier tipărește doar procesul-verbal și
+  semnăturile (cu marcajul „CIORNĂ” până la închidere); PDF-ul se salvează din fereastra de tipărire.
+- **Avizier** (public, și în meniul celor conectați): procesele-verbale închise, cu verificarea semnăturilor; avertizare
+  pentru termenul de 7 zile.
 
 ## Semnătură electronică și integritate
 
