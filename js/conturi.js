@@ -5,9 +5,9 @@
 // `cheie` = tokenul de acces la date, criptat cu parola utilizatorului. Parolele nu se
 // stochează nicăieri; fără parola corectă cheia nu se poate decripta.
 
-import { GitHubRepo } from './github.js?v=10';
-import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=10';
-import { REPO_PUBLIC, REPO_DATE, ROLURI, APARTAMENTE } from './config.js?v=10';
+import { GitHubRepo } from './github.js?v=11';
+import { cripteaza, decripteaza, parolaTemporara, ITERATII_PAROLA, ITERATII_TEMPORARA } from './crypto.js?v=11';
+import { REPO_PUBLIC, REPO_DATE, ROLURI } from './config.js?v=11';
 
 const FISIER = 'conturi.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -21,13 +21,10 @@ export function verificaParola(u, parola) {
   return null;
 }
 
-const pad = (n) => String(n).padStart(2, '0');
-
-// Administrația (roluri) + câte un cont pentru fiecare apartament (ap01…ap60).
+// La configurare se creează doar conturile administrației; conturile apartamentelor
+// (ap01…ap60) apar pe rând, când președintele generează cardul de acces.
 export function contImplicite() {
-  const lista = ROLURI.map((r) => ({ u: r.u, rol: r.id, apartament: null }));
-  for (let ap = 1; ap <= APARTAMENTE; ap++) lista.push({ u: `ap${pad(ap)}`, rol: 'proprietar', apartament: ap });
-  return lista;
+  return ROLURI.map((r) => ({ u: r.u, rol: r.id, apartament: null }));
 }
 
 export class Conturi {
@@ -94,30 +91,22 @@ export class Conturi {
     return parola;
   }
 
-  // Parole temporare noi pentru mai multe conturi deodată (de ex. biletele apartamentelor),
-  // plus crearea conturilor care lipsesc. Un singur commit.
-  async reseteazaMai(token, filtru, progres = () => {}) {
+  // Card de acces: parolă temporară nouă pentru un cont, creat dacă nu există încă
+  // (ex. apartamentul care cere acces). Întoarce parola, afișată o singură dată.
+  async cardAcces(token, model) {
     const gh = Conturi.repo(this.apiBase, token);
     await gh.info();
-    const parole = [];
-    const actualizat = await gh.transact(async (head) => {
+    const parola = parolaTemporara();
+    const cheie = await cripteaza({ token }, parola, ITERATII_TEMPORARA);
+    this.date = await gh.transact(async (head) => {
       const date = await gh.readJson(FISIER, head);
-      for (const c of contImplicite()) {
-        if (!date.utilizatori.some((x) => x.u === c.u)) date.utilizatori.push({ ...c, temporara: true, cheie: null });
-      }
-      parole.length = 0;
-      const tinte = date.utilizatori.filter((c) => !c.cheie || filtru(c));
-      for (let i = 0; i < tinte.length; i++) {
-        const parola = parolaTemporara();
-        tinte[i].cheie = await cripteaza({ token }, parola, ITERATII_TEMPORARA);
-        tinte[i].temporara = true;
-        parole.push({ u: tinte[i].u, rol: tinte[i].rol, apartament: tinte[i].apartament, parola });
-        progres(i + 1, tinte.length);
-      }
+      let cont = date.utilizatori.find((x) => x.u === model.u);
+      if (!cont) date.utilizatori.push(cont = { ...model });
+      cont.cheie = cheie;
+      cont.temporara = true;
       return { files: [{ path: FISIER, text: json(date) }], result: date };
-    }, () => `Parole temporare noi (${parole.length} conturi)`);
-    this.date = actualizat;
-    return parole;
+    }, () => `Card de acces: ${model.u}`);
+    return parola;
   }
 
   seteazaApartament(token, u, apartament) {

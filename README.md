@@ -26,12 +26,16 @@ Nimeni nu trebuie să o țină minte: la configurare, aplicația o criptează cu
 6. **Permissions → Repository permissions → Contents:** `Read and write`.
 7. **Generate token** și copiază-l.
 8. Deschide site-ul → **Administrație** → apare „Configurare inițială” → lipește cheia → **Creează conturile**.
-9. Tipărește biletele cu parolele temporare și dă-le titularilor. La prima conectare fiecare își alege parola.
+9. Tipărește cardurile cu parolele temporare și dă-le titularilor. La prima conectare fiecare își alege parola.
 
 ## Conturi
 
 `presedinte`, `resp01`…`resp13` (rolurile din Regulamentul intern, Cap. IV), `cenzor`, `administrator`.
 Fiecare rol se atribuie unui apartament, nu unei persoane (pagina **Utilizatori**). Președintele poate reseta orice parolă.
+
+**Apartamentele** (`ap01`…`ap60`): proprietarul cere accesul pe WhatsApp la președinte, care verifică și generează pe loc
+un card de acces (Utilizatori → Acces pentru apartamente). Proprietarul conectat depune sesizări direct și își vede doar
+sesizările apartamentului lui.
 
 | Cont | Poate |
 |---|---|

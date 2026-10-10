@@ -1,12 +1,12 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=10';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=10';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=11';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=11';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   termenInfo, amprenta, continutSemnat, codVerificare, verificaLant,
-} from './store.js?v=10';
+} from './store.js?v=11';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=10';
+} from './config.js?v=11';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -404,9 +404,10 @@ function paginaCum() {
       eProprietar()
         ? [h('p', {}, `Ești conectat cu contul apartamentului ${S.cont.apartament}. Sesizarea se salvează direct în registru și primește imediat număr de înregistrare.`),
           h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Sesizare nouă')]
-        : [h('p', {}, 'Conectează-te cu contul apartamentului (de pe biletul primit de la asociație). Sesizarea se salvează direct în registru și primește imediat număr de înregistrare; apoi urmărești răspunsul în „Sesizările mele”.'),
+        : [h('p', {}, 'Conectează-te cu contul apartamentului. Sesizarea se salvează direct în registru și primește imediat număr de înregistrare; apoi urmărești răspunsul în „Sesizările mele”.'),
+          h('p', { class: 'slab' }, 'Nu ai cont? Solicită accesul pe WhatsApp la președinte — primești pe loc un card cu utilizatorul și parola.'),
           h('a', { href: '#/admin', class: 'buton principal' }, 'Conectare apartament')]),
-    !eProprietar() && h('p', { class: 'slab nu-tipari' }, 'Nu ai încă cont? Poți completa formularul de mai jos, care se trimite pe e-mail asociației.'),
+    !eProprietar() && h('p', { class: 'slab nu-tipari' }, 'Până primești contul, poți completa formularul de mai jos, care se trimite pe e-mail asociației.'),
     !eProprietar() && form,
     h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
     previzualizare,
@@ -507,12 +508,12 @@ async function ecranLogin(eroare = '') {
     }
   } },
   h('h1', {}, 'Conectare'),
-  h('p', { class: 'slab' }, 'Cu contul apartamentului (ex. ap12) sau cu contul de administrație, de pe biletul primit de la asociație.'),
+  h('p', { class: 'slab' }, 'Cu contul apartamentului (ex. ap12) sau cu contul de administrație, de pe cardul primit de la asociație.'),
   eroare && h('p', { class: 'eroare', role: 'alert' }, eroare),
   h('label', {}, 'Utilizator', h('input', { name: 'u', required: true, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'ex. ap12' })),
   h('label', {}, 'Parola', h('input', { name: 'p', type: 'password', required: true, autocomplete: 'current-password' })),
   h('button', { type: 'submit', class: 'principal' }, 'Conectare'),
-  h('p', { class: 'slab mic' }, 'Ai uitat parola? Cere președintelui o parolă temporară nouă.'));
+  h('p', { class: 'slab mic' }, 'Nu ai cont sau ai uitat parola? Solicită accesul pe WhatsApp la președinte — primești pe loc un card cu parola.'));
   afiseaza('login', h('div', { class: 'centrat' }, form));
   form.u.focus();
 }
@@ -571,7 +572,7 @@ function bilete(lista) {
   const site = `${location.origin}${location.pathname}#/admin`;
   return h('div', { class: 'bilete' }, lista.map((b) => h('div', { class: 'bilet' },
     h('strong', {}, ASOCIATIA.nume),
-    h('span', {}, `Cont: ${b.rol === 'proprietar' ? `Apartamentul ${b.apartament}` : numeRol(b.rol)}`),
+    h('span', {}, `Card de acces — ${b.rol === 'proprietar' ? `Apartamentul ${b.apartament}` : numeRol(b.rol)}`),
     h('span', {}, 'Site: ', h('b', {}, site)),
     h('span', {}, 'Utilizator: ', h('b', { class: 'cod' }, b.u)),
     h('span', {}, 'Parolă temporară: ', h('b', { class: 'cod' }, b.parola)),
@@ -961,21 +962,29 @@ async function paginaUtilizatori() {
       bilete(parole)));
     window.scrollTo(0, 0);
   };
-  const progres = h('span', { class: 'slab mic' });
-  const nefolosite = S.conturi.utilizatori.filter((c) => c.rol === 'proprietar' && c.temporara).length;
-  const lipsa = APARTAMENTE - S.conturi.utilizatori.filter((c) => c.rol === 'proprietar').length;
+  const proprii = S.conturi.utilizatori.filter((c) => c.rol === 'proprietar');
+  const active = proprii.filter((c) => !c.temporara).length;
+  const card = h('form', { class: 'rand-actiune', onsubmit: (ev) => {
+    ev.preventDefault();
+    const ap = Number(card.ap.value);
+    const u = `ap${String(ap).padStart(2, '0')}`;
+    const exista = S.conturi.gaseste(u);
+    actiune(async () => {
+      if (exista && !confirm(`Apartamentul ${ap} are deja cont${exista.temporara ? '' : ' cu parola lui'}. Generezi un card nou? Parola veche nu va mai funcționa.`)) return;
+      const parola = await S.conturi.cardAcces(S.token, { u, rol: 'proprietar', apartament: ap });
+      arataBilete([{ u, rol: 'proprietar', apartament: ap, parola }], `Card de acces pentru apartamentul ${ap}. Se afișează o singură dată — dă-l pe loc sau tipărește-l.`);
+    })({ currentTarget: card.querySelector('button') });
+  } },
+  h('select', { name: 'ap', 'aria-label': 'Apartament' }, Array.from({ length: APARTAMENTE }, (_, i) => {
+    const c = S.conturi.gaseste(`ap${String(i + 1).padStart(2, '0')}`);
+    return h('option', { value: i + 1 }, `Ap. ${i + 1}${c ? (c.temporara ? ' — card dat, neactivat' : ' — activ') : ''}`);
+  })),
+  h('button', { type: 'submit', class: 'principal' }, 'Generează card de acces'));
   const bileteApartamente = h('div', { class: 'card' },
-    h('h2', {}, 'Conturile apartamentelor'),
-    h('p', {}, `${APARTAMENTE - lipsa - nefolosite} din ${APARTAMENTE} apartamente și-au ales parola.`
-      + (lipsa ? ` ${lipsa} conturi nu sunt încă create.` : '')),
-    h('p', { class: 'slab mic' }, 'Parolele temporare nu se pot reafișa. Butonul generează parole noi pentru apartamentele care nu s-au conectat încă (ce au deja parola lor rămân neatinse) și afișează biletele de tipărit.'),
-    h('div', { class: 'actiuni' },
-      h('button', { class: 'principal', onclick: actiune(async () => {
-        if (!confirm('Generezi bilete noi pentru apartamentele care nu și-au ales încă parola? Biletele vechi nefolosite nu vor mai funcționa.')) return;
-        const parole = await S.conturi.reseteazaMai(S.token, (c) => c.rol === 'proprietar' && c.temporara, (i, n) => { progres.textContent = `${i}/${n}`; });
-        arataBilete(parole.filter((b) => b.rol === 'proprietar'), 'Bilete pentru apartamente — se afișează o singură dată. Tipărește-le și pune-le în cutiile poștale.');
-      }) }, 'Generează biletele apartamentelor'),
-      progres));
+    h('h2', {}, 'Acces pentru apartamente'),
+    h('p', {}, `${active} din ${APARTAMENTE} apartamente au contul activ.`),
+    h('p', { class: 'slab mic' }, 'Proprietarul cere accesul pe WhatsApp. Verifici că e din apartamentul respectiv, alegi apartamentul și generezi cardul: utilizatorul și o parolă temporară, pe care o schimbă la prima conectare. Tot de aici se face și resetarea, dacă și-a uitat parola.'),
+    card);
   const randuri = S.conturi.utilizatori.filter((c) => c.rol !== 'proprietar').map((c) => {
     const ap = h('select', { 'aria-label': `Apartament ${c.u}`, onchange: actiune(async () => {
       await S.conturi.seteazaApartament(S.token, c.u, ap.value ? Number(ap.value) : null);
@@ -990,19 +999,6 @@ async function paginaUtilizatori() {
         arataBilete([{ u: c.u, rol: c.rol, apartament: c.apartament, parola }], `Parolă temporară nouă pentru ${c.u}. Se afișează o singură dată.`);
       }) }, 'Resetează parola'));
   });
-  const reseteazaAp = h('form', { class: 'rand-actiune', onsubmit: (ev) => {
-    ev.preventDefault();
-    const u = `ap${String(reseteazaAp.ap.value).padStart(2, '0')}`;
-    actiune(async () => {
-      if (!S.conturi.gaseste(u)) throw new Error(`Contul ${u} nu există încă — folosește „Generează biletele apartamentelor”.`);
-      if (!confirm(`Resetezi parola pentru ${u}?`)) return;
-      const parola = await S.conturi.reseteaza(S.token, u);
-      arataBilete([{ u, rol: 'proprietar', apartament: Number(reseteazaAp.ap.value), parola }], `Parolă temporară nouă pentru ${u}. Se afișează o singură dată.`);
-    })({ currentTarget: reseteazaAp.querySelector('button') });
-  } },
-  h('select', { name: 'ap', 'aria-label': 'Apartament' }, Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`))),
-  h('button', { type: 'submit' }, 'Resetează parola apartamentului'));
-  bileteApartamente.append(reseteazaAp);
   afiseaza('utilizatori',
     h('h1', {}, 'Utilizatori'),
     h('p', { class: 'slab' }, 'Fiecare rol se atribuie unui apartament (nu unei persoane). Apartamentul apare lângă rol în aplicație și pe pagina publică.'),
