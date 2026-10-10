@@ -1,6 +1,6 @@
 # Plan — Voice dictation with commands for the minutes (proces-verbal)
 
-Status: **draft 2026-10-10**, not started. Builds on [plan-sedinte-passkey.md](plan-sedinte-passkey.md)
+Status: **built 2026-10-10** (local, not yet pushed). Builds on [plan-sedinte-passkey.md](plan-sedinte-passkey.md)
 (phase 3, step 3 "Minutes"): it only adds a faster way to fill the same PV structure. Nothing here changes
 signing, storage or the lifecycle. Interactive mockup: see the artifact linked from the session that wrote this plan.
 
