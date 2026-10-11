@@ -13,7 +13,7 @@
 // Acces: doar responsabilul cărții de imobil și președintele (art. 93 lit. c) din anexa 1 la HG 295/2021:
 // cartea se prezintă spre verificare numai poliției și S.P.C.E.P.). Nu se păstrează copii ale actelor (art. 94).
 
-import { caleRegistru, FEL_ADRESA, STARI_FINALE, verificaContact } from './store.js?v=22';
+import { caleRegistru, FEL_ADRESA, STARI_FINALE, verificaContact } from './store.js?v=23';
 
 const FISIER = 'carte-imobil.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';

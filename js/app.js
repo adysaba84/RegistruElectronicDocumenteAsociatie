@@ -1,21 +1,21 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=22';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=22';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=23';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=23';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, CATEGORII_CERERE, STARI, STARI_CERERE, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   OPERATII_CARTE, FEL_ADRESA, TERMEN_CARTE_ZILE, MAX_PERSOANE,
   termenInfo, azi, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant, pregatesteCerere, amprentaParte, continutCerere,
-} from './store.js?v=22';
-import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=22';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=22';
+} from './store.js?v=23';
+import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=23';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=23';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, inchisa, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=22';
+} from './sedinte.js?v=23';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=22';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=22';
-import { pvInText, textInPV } from './pv-text.js?v=22';
-import { Dictare, dictareSuportata } from './dictare.js?v=22';
+} from './config.js?v=23';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=23';
+import { pvInText, textInPV } from './pv-text.js?v=23';
+import { Dictare, dictareSuportata } from './dictare.js?v=23';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -968,11 +968,16 @@ async function formularCerere(tip) {
     const lista = activi();
     const numeAlt = h('label', { class: 'lat', hidden: lista.length > 0 }, 'Numele de familie și prenumele *', h('input', { class: 'p-nume', maxlength: 120, autocapitalize: 'characters' }));
     const alege = h('select', { class: 'p-id', onchange: () => { numeAlt.hidden = alege.value !== 'alta'; } },
-      lista.length && h('option', { value: '' }, 'Alege persoana…'),
+      lista.length > 0 && h('option', { value: '' }, 'Alege persoana…'),
       lista.map((p) => h('option', { value: p.id }, `${p.nume} (din ${fmtData(p.dataMutarii)})`)),
       h('option', { value: 'alta', selected: !lista.length }, 'Altă persoană (nu apare în cartea de imobil electronică)'));
+    // De ce lista poate fi goală: apartamentul nu e ales încă sau nimeni nu e înscris (încă) în cartea electronică.
+    const motiv = !lista.length && h('p', { class: 'avertizare mic lat' }, !(apartament() >= 1)
+      ? 'Alege întâi apartamentul (sus); lista se completează cu persoanele înscrise acolo.'
+      : `În cartea de imobil electronică nu e nicio persoană înscrisă acum la ap. ${apartament()}. O persoană apare aici abia după ce cererea ei de înscriere a fost rezolvată de responsabilul cărții de imobil (starea „Rezolvată”), nu doar înregistrată.`);
     const rand = h('div', { class: 'rand-persoana' },
       h('label', { class: 'lat' }, 'Persoana care se mută din imobil *', alege),
+      motiv,
       numeAlt,
       h('label', {}, 'Data mutării din imobil *', h('input', { class: 'p-data', type: 'date' })));
     rand.append(sterge(rand));
