@@ -91,7 +91,13 @@ sesizările apartamentului lui.
 - **Responsabilul cărții de imobil și președintele** văd toată cartea. La înscriere verifică actul de identitate (doar îl văd,
   fără copii — art. 94), confirmă sau corectează datele și cererea devine „Rezolvată”; termen 15 zile (art. 93).
   Mai au înscriere directă, corectare (vechile valori rămân în istoric) și „Mutat”. Nimeni nu se șterge.
-- **Tipărește** dă cartea în formatul anexei 8, pe apartamente, cu mențiunea de confidențialitate.
+- **Date de contact opționale** la înscriere: telefon, e-mail, „persoană de contact pentru apartament” (nu fac parte din anexa 8;
+  le vede doar conducerea, se pot șterge la cerere).
+- **Administratorul** vede cartea (doar citire), ca s-o poată tipări.
+- **Tipărire** (doar președinte, administrator, responsabilul cărții), în două formate:
+  - **oficial** — doar coloanele anexei 8, pe apartamente, cu mențiunea de confidențialitate;
+  - **extins** — plus datele de contact, numărul de persoane care locuiesc efectiv (ultima declarație trecută în e-bloc)
+    și un rezumat pe apartamente (înscriși acum, locuiesc efectiv, persoane de contact).
 
 ## Numărul de persoane
 

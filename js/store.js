@@ -10,7 +10,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=20';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=21';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -156,9 +156,16 @@ export function vederePublica(reg) {
 
 const dataValida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && !Number.isNaN(new Date(`${v}T12:00:00`).getTime());
 
+// Date de contact opționale (nu fac parte din anexa 8): telefon, e-mail, „persoană de contact pentru apartament”.
+export function verificaContact(p) {
+  if (p.telefon && !/^[+0-9 ().-]{6,20}$/.test(p.telefon)) throw new Error(`Numărul de telefon pentru ${p.nume} nu pare corect.`);
+  if (p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) throw new Error(`Adresa de e-mail pentru ${p.nume} nu pare corectă.`);
+}
+
 // Normalizează și validează cererea din formular. Întoarce cele două părți (oricare poate lipsi):
 //   carte    = { operatiune, persoane: [...] } — la înscriere coloanele din HG 295/2021, anexa 8:
-//              { nume, actSerie, actNumar, data, felAdresa, domiciliu }; la radiere { id?, nume, data }
+//              { nume, actSerie, actNumar, data, felAdresa, domiciliu } + opțional { telefon, email, contact };
+//              la radiere { id?, nume, data }
 //              (`id` = persoana din cartea de imobil electronică, dacă e deja acolo)
 //   persoane = { nr, de }
 export function pregatesteCerere(c) {
@@ -174,6 +181,9 @@ export function pregatesteCerere(c) {
         data: text(p.data),
         felAdresa: FEL_ADRESA[p.felAdresa] ? p.felAdresa : 'domiciliu',
         domiciliu: text(p.domiciliu),
+        telefon: text(p.telefon),
+        email: text(p.email).toLowerCase(),
+        contact: Boolean(p.contact),
       }
       : { ...(text(p.id) ? { id: text(p.id) } : {}), nume: text(p.nume).toUpperCase(), data: text(p.data) }
     )).filter((p) => p.nume || p.data || p.actNumar || p.domiciliu);
@@ -185,6 +195,7 @@ export function pregatesteCerere(c) {
       if (operatiune === 'inscriere') {
         if (!p.actNumar) throw new Error(`Completează numărul actului de identitate pentru ${p.nume}.`);
         if (!p.domiciliu) throw new Error(`Completează domiciliul din actul de identitate pentru ${p.nume}.`);
+        verificaContact(p);
       }
     }
     carte = { operatiune, persoane: lista };

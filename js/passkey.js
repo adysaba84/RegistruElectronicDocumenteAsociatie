@@ -5,8 +5,8 @@
 //   { versiune, chei: [{ id, u, spki, alg, rpId, origin, dispozitiv, inregistrataLa, cod, revocataLa?, revocataDe? }] }
 // Lista e doar adăugată: o cheie revocată rămâne, ca semnăturile făcute cu ea înainte să fie verificabile.
 
-import { GitHubRepo } from './github.js?v=20';
-import { REPO_PUBLIC } from './config.js?v=20';
+import { GitHubRepo } from './github.js?v=21';
+import { REPO_PUBLIC } from './config.js?v=21';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();

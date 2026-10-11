@@ -12,7 +12,7 @@
 //
 // Structura: puncte: [{ titlu, discutii, decizii: [{ text, pentru, impotriva, abtineri, responsabil, termen }] }]
 
-import { norm, parseazaVot, parseazaTermen, potrivesteRol } from './comenzi-voce.js?v=20';
+import { norm, parseazaVot, parseazaTermen, potrivesteRol } from './comenzi-voce.js?v=21';
 
 export const RE_TITLU = /^(\d+)\.\s+(.+)$/;
 const RE_CAMP = /^(Decizie|Vot|Responsabil|Termen)\s*:\s*(.*)$/i;

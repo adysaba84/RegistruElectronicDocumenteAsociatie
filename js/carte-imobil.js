@@ -1,7 +1,10 @@
 // Cartea de imobil în formatul din HG nr. 295/2021, anexa 8, ținută electronic în repo-ul privat.
 //
 //   carte-imobil.json  { versiune, persoane: [{ id, apartament, nume, actSerie, actNumar, dataMutarii,
-//                        felAdresa, domiciliu, dataPlecarii, cerere?, cerereRadiere?, istoric: [...] }] }
+//                        felAdresa, domiciliu, dataPlecarii, telefon, email, contact, cerere?, cerereRadiere?, istoric: [...] }] }
+//
+// `telefon`, `email`, `contact` (persoană de contact pentru apartament) sunt opționale și nu fac parte din anexa 8:
+// apar doar în evidența extinsă, nu în tipărirea oficială.
 //
 // Coloanele anexei 8: numele (cu litere de tipar), actul de identitate (seria, numărul), data mutării
 // în imobil și felul adresei (domiciliu / reședință), domiciliul din actul de identitate, data mutării din imobil.
@@ -10,7 +13,7 @@
 // Acces: doar responsabilul cărții de imobil și președintele (art. 93 lit. c) din anexa 1 la HG 295/2021:
 // cartea se prezintă spre verificare numai poliției și S.P.C.E.P.). Nu se păstrează copii ale actelor (art. 94).
 
-import { caleRegistru, FEL_ADRESA, STARI_FINALE } from './store.js?v=20';
+import { caleRegistru, FEL_ADRESA, STARI_FINALE, verificaContact } from './store.js?v=21';
 
 const FISIER = 'carte-imobil.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -18,7 +21,8 @@ const acum = () => new Date().toISOString();
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
 const dataValida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
 
-export const ROLURI_CARTE = ['presedinte', 'r01'];
+export const ROLURI_CARTE = ['presedinte', 'r01'];          // văd și modifică
+export const ROLURI_CARTE_CITIRE = [...ROLURI_CARTE, 'administrator']; // văd și tipăresc
 
 // Câmpurile din anexa 8, validate. `partial` = corecție (doar câmpurile trimise).
 function campuri(p) {
@@ -30,12 +34,16 @@ function campuri(p) {
     dataMutarii: text(p.dataMutarii),
     felAdresa: FEL_ADRESA[p.felAdresa] ? p.felAdresa : 'domiciliu',
     domiciliu: text(p.domiciliu),
+    telefon: text(p.telefon),
+    email: text(p.email).toLowerCase(),
+    contact: p.contact === true || p.contact === 'on',
   };
   if (!(out.apartament >= 1)) throw new Error('Alege apartamentul.');
   if (!out.nume) throw new Error('Completează numele și prenumele.');
   if (!out.actNumar) throw new Error(`Completează numărul actului de identitate pentru ${out.nume}.`);
   if (!dataValida(out.dataMutarii)) throw new Error(`Completează data mutării în imobil pentru ${out.nume}.`);
   if (!out.domiciliu) throw new Error(`Completează domiciliul din actul de identitate pentru ${out.nume}.`);
+  verificaContact(out);
   return out;
 }
 
