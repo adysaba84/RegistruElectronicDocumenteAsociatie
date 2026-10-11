@@ -1,21 +1,21 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=21';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=21';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=22';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=22';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, CATEGORII_CERERE, STARI, STARI_CERERE, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   OPERATII_CARTE, FEL_ADRESA, TERMEN_CARTE_ZILE, MAX_PERSOANE,
   termenInfo, azi, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant, pregatesteCerere, amprentaParte, continutCerere,
-} from './store.js?v=21';
-import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=21';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=21';
+} from './store.js?v=22';
+import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=22';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=22';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, inchisa, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=21';
+} from './sedinte.js?v=22';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=21';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=21';
-import { pvInText, textInPV } from './pv-text.js?v=21';
-import { Dictare, dictareSuportata } from './dictare.js?v=21';
+} from './config.js?v=22';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=22';
+import { pvInText, textInPV } from './pv-text.js?v=22';
+import { Dictare, dictareSuportata } from './dictare.js?v=22';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -1014,6 +1014,23 @@ async function formularCerere(tip) {
       h('label', {}, 'De la data *', deInput)),
     h('p', { class: 'slab mic' }, 'Numărul de persoane pentru cheltuieli nu e același lucru cu cartea de imobil: contează cine locuiește efectiv în apartament, nu cine are domiciliul aici. Se înregistrează ca cerere separată, la administrator, care îl trece în e-bloc.'));
 
+  // Cererea pe hârtie, tipărită cu ce s-a completat până acum (câmpurile goale rămân de scris de mână).
+  const tiparesteCererea = (goala) => {
+    const persoaneTipar = goala || !deCarte ? [] : [...persoaneZona.querySelectorAll('.rand-persoana')].map((r) => {
+      const v = (cls) => r.querySelector(cls)?.value?.trim() || '';
+      const id = v('.p-id');
+      const din = id && id !== 'alta' && carte.persoane.find((y) => y.id === id);
+      return { nume: din ? din.nume : v('.p-nume').toUpperCase(), actSerie: v('.p-serie').toUpperCase(), actNumar: v('.p-numar'),
+        data: v('.p-data'), felAdresa: v('.p-fel'), domiciliu: v('.p-dom'), telefon: v('.p-tel'), email: v('.p-email') };
+    }).filter((p) => Object.values(p).some(Boolean));
+    tiparesteDocument(documentCerere({
+      carte: deCarte, operatiune,
+      apartament: goala ? '' : (apartament() || ''), nume: goala ? '' : form.nume.value.trim(),
+      persoane: persoaneTipar,
+      cuNr: !deCarte || cuNr.checked || goala, nr: goala ? '' : nrInput.value, de: goala ? '' : deInput.value,
+    }));
+  };
+
   const textButon = proprietar ? [ic('fingerprint'), 'Semnează cu passkey și trimite'] : ['Înregistrează cererea'];
   const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
     ev.preventDefault();
@@ -1032,6 +1049,7 @@ async function formularCerere(tip) {
       if (!c.nume) throw new Error('Completează numele solicitantului.');
       const parti = pregatesteCerere(c);
       const noi = fisiere ? [...fisiere.files] : [];
+      if (!proprietar && !noi.length) throw new Error('Atașează cererea semnată (scan sau fotografie): e dovada modificării.');
       const mare = noi.find((f) => f.size > MAX_FISIER);
       if (mare) throw new Error(`„${mare.name}” depășește 25 MB.`);
       let semnatura = null;
@@ -1057,7 +1075,10 @@ async function formularCerere(tip) {
   } },
   h('p', { class: 'slab' }, proprietar
     ? 'Cererea primește număr de înregistrare și o semnezi cu passkey-ul tău (amprentă, față sau PIN), ca dovadă a datei la care ai anunțat.'
-    : 'Pentru cererile primite pe hârtie sau pe e-mail. Atașează scanul cererii semnate.'),
+    : 'Pentru cererile pe hârtie: completează datele împreună cu solicitantul, tipărește cererea, cere-i s-o semneze, apoi atașează scanul sau fotografia ei și înregistrează. Fără cererea semnată atașată nu se poate înregistra.'),
+  !proprietar && h('div', { class: 'actiuni' },
+    h('button', { type: 'button', onclick: () => tiparesteCererea(false) }, ic('printer'), 'Tipărește cererea pentru semnare'),
+    h('button', { type: 'button', onclick: () => tiparesteCererea(true) }, ic('printer'), 'Formular gol')),
   h('div', { class: 'grila' },
     proprietar
       ? h('label', {}, 'Apartamentul', h('input', { value: `Ap. ${S.cont.apartament}`, disabled: true }))
@@ -1069,12 +1090,54 @@ async function formularCerere(tip) {
   deCarte
     ? h('fieldset', {}, h('legend', {}, h('label', { class: 'bifa' }, cuNr, 'Se schimbă și numărul de persoane care locuiesc efectiv')), zonaNr)
     : h('fieldset', {}, h('legend', {}, 'Numărul de persoane'), zonaNr),
-  fisiere && h('label', {}, 'Scanul cererii (max. 25 MB fiecare)', fisiere),
+  fisiere && h('label', {}, 'Cererea semnată — scan sau fotografie * (max. 25 MB fiecare)', fisiere),
   eroare,
   h('div', { class: 'actiuni' },
     h('button', { type: 'submit', class: 'principal' }, ...textButon),
     h('a', { href: deCarte ? '#/admin/carte-imobil' : '#/admin/persoane', class: 'buton' }, 'Renunță')));
   afiseaza(deCarte ? 'carte' : 'persoane', h('h1', {}, deCarte ? 'Cerere: cartea de imobil' : 'Declarație: numărul de persoane'), form);
+}
+
+// Cererea tipărită pentru semnare (cereri pe hârtie): cu datele completate în formular sau goală.
+// După semnare se scanează / fotografiază și se atașează la înregistrare, ca dovadă.
+function documentCerere(d) {
+  const linie = (v, n = 20) => (v === undefined || v === null || v === '' ? '_'.repeat(n) : String(v));
+  const ins = d.operatiune !== 'radiere';
+  const persoane = d.carte && d.persoane.length ? d.persoane : Array.from({ length: d.carte ? 4 : 0 }, () => ({}));
+  const tabel = d.carte && h('table', { class: 'carte' },
+    h('thead', {}, h('tr', {}, (ins
+      ? ['Numele de familie și prenumele (cu litere de tipar)', 'Act de identitate: seria', 'Numărul', 'Data mutării în imobil', 'Felul adresei (domiciliu / reședință)', 'Domiciliul (din actul de identitate)', 'Telefon, e-mail (opțional)']
+      : ['Numele de familie și prenumele', 'Data mutării din imobil']).map((t) => h('th', {}, t)))),
+    h('tbody', {}, persoane.map((p) => h('tr', {}, (ins
+      ? [p.nume, p.actSerie, p.actNumar, p.data && fmtData(p.data), p.felAdresa && FEL_ADRESA[p.felAdresa], p.domiciliu,
+        [p.telefon, p.email].filter(Boolean).join(', ')]
+      : [p.nume, p.data && fmtData(p.data)]).map((v) => h('td', {}, v || ' '))))));
+  return h('div', { class: 'de-tipar doar-tipar document-cerere' },
+    h('div', { class: 'antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    h('p', { class: 'mic' }, 'Nr. de înregistrare __________ din ______________'),
+    h('h2', { class: 'centrat-text' }, 'CERERE'),
+    h('p', { class: 'centrat-text' }, d.carte
+      ? (ins ? 'privind înscrierea în cartea de imobil' : 'privind mutarea din imobil (radierea din cartea de imobil)')
+      : 'privind numărul de persoane care locuiesc efectiv în apartament'),
+    h('p', {}, `Subsemnatul(a) ${linie(d.nume, 34)}, apartamentul ${linie(d.apartament, 4)}, `,
+      d.carte
+        ? (ins ? 'vă rog să înscrieți în cartea de imobil următoarele persoane:' : 'vă rog să treceți în cartea de imobil mutarea din imobil a următoarelor persoane:')
+        : 'declar următoarele:'),
+    tabel,
+    d.cuNr && h('p', {}, `Declar că, începând cu data de ${linie(d.de && fmtData(d.de), 12)}, în apartament locuiesc efectiv ${linie(d.nr, 4)} persoane (pentru repartizarea cheltuielilor).`),
+    d.carte && ins && h('p', { class: 'mic' }, 'Telefonul și e-mailul sunt opționale: asociația le folosește doar pentru a vă contacta și puteți cere oricând ștergerea lor.'),
+    h('div', { class: 'semnaturi-cerere' },
+      h('p', {}, 'Data: ________________'),
+      h('p', {}, 'Semnătura solicitantului: ________________________')),
+    d.carte && ins && h('p', { class: 'mic' }, `Rezervat responsabilului cărții de imobil: actul de identitate al fiecărei persoane a fost prezentat și verificat vizual, fără copie (HG nr. 295/2021, anexa 1, art. 94). Nume și semnătură: ______________________________`));
+}
+
+function tiparesteDocument(doc) {
+  const main = document.querySelector('main');
+  main.append(doc);
+  document.body.classList.add('tipar-pv');
+  window.addEventListener('afterprint', () => { document.body.classList.remove('tipar-pv'); doc.remove(); }, { once: true });
+  window.print();
 }
 
 // Verifică semnătura proprietarului pe partea de cerere din această înregistrare.
@@ -1137,7 +1200,7 @@ async function formularRadiere(an, x, gata) {
   const active = carte.persoane.filter((p) => p.apartament === x.apartament && !p.dataPlecarii);
   if (!active.length) {
     return h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Radiere din cartea de imobil'),
-      h('p', { class: 'avertizare' }, `În cartea de imobil electronică nu e nicio persoană înscrisă la ap. ${x.apartament} care să nu se fi mutat deja. Înscrie-o întâi (Cartea de imobil → Înscriere directă) sau respinge cererea.`));
+      h('p', { class: 'avertizare' }, `În cartea de imobil electronică nu e nicio persoană înscrisă la ap. ${x.apartament} care să nu se fi mutat deja. Înregistrează întâi o cerere de înscriere pentru ea (cu data mutării de atunci) sau respinge cererea.`));
   }
   const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
   const randuri = x.carte.persoane.map((p) => {
@@ -1257,8 +1320,8 @@ async function detaliuCerere(an, x, reg) {
     h('p', { class: 'mic slab nu-tipari' }, 'Amprenta înregistrării: ', h('code', {}, codVerificare(x.amprenta) || '—')));
 }
 
-// Cartea de imobil (HG nr. 295/2021, anexa 8): responsabilul cărții și președintele o văd și o modifică
-// pe toată; proprietarul vede înscrierile apartamentului lui și cere modificările prin cerere.
+// Cartea de imobil (HG nr. 295/2021, anexa 8): orice înscriere sau mutare trece printr-o cerere semnată
+// (passkey sau hârtie atașată). Responsabilul cărții și președintele pot doar corecta greșelile de transcriere.
 function formularPersoana(p, gata, renunta) {
   const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
   const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
@@ -1268,8 +1331,8 @@ function formularPersoana(p, gata, renunta) {
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
     try {
-      if (p) await S.carte.corecteaza(p.id, v); else await S.carte.inscrie([v]);
-      S.mesaj = p ? 'Înscrierea a fost corectată.' : 'Persoana a fost înscrisă în cartea de imobil.';
+      await S.carte.corecteaza(p.id, v);
+      S.mesaj = 'Înscrierea a fost corectată.';
       gata();
     } catch (e) {
       btn.disabled = false;
@@ -1277,8 +1340,8 @@ function formularPersoana(p, gata, renunta) {
       eroare.hidden = false;
     }
   } },
-  h('h2', {}, p ? `Corectează: ${p.nume}` : 'Înscriere directă'),
-  !p && h('p', { class: 'slab mic' }, 'Pentru persoanele venite fără cerere în aplicație. Verifică vizual actul de identitate; nu se fac copii (art. 94).'),
+  h('h2', {}, `Corectează: ${p.nume}`),
+  h('p', { class: 'slab mic' }, 'Doar pentru greșeli de transcriere. O mutare în sau din imobil se face printr-o cerere semnată. Valorile vechi rămân în istoricul înscrierii.'),
   h('div', { class: 'grila' },
     h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
       h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1, selected: p?.apartament === i + 1 }, `Ap. ${i + 1}`)))),
@@ -1296,33 +1359,7 @@ function formularPersoana(p, gata, renunta) {
     h('ol', { class: 'istoric' }, p.istoric.map((i) => h('li', {}, h('span', { class: 'slab mic' }, `${fmtDataOra(i.la)} · ${eticheta(i.u)}`), h('span', {}, i.actiune))))),
   eroare,
   h('div', { class: 'actiuni' },
-    h('button', { type: 'submit', class: 'principal' }, p ? 'Salvează corecția' : 'Înscrie'),
-    h('button', { type: 'button', onclick: renunta }, 'Renunță')));
-  return form;
-}
-
-function formularMutare(p, gata, renunta) {
-  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
-  const data = h('input', { type: 'date', required: true, value: azi() });
-  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
-    ev.preventDefault();
-    const btn = form.querySelector('button[type=submit]');
-    btn.disabled = true;
-    try {
-      await S.carte.radiaza([{ id: p.id, data: data.value }]);
-      S.mesaj = `Data mutării din imobil a fost trecută pentru ${p.nume}.`;
-      gata();
-    } catch (e) {
-      btn.disabled = false;
-      eroare.textContent = mesajEroare(e);
-      eroare.hidden = false;
-    }
-  } },
-  h('h2', {}, `Mutare din imobil: ${p.nume}`),
-  h('div', { class: 'grila' }, h('label', {}, 'Data mutării din imobil *', data)),
-  eroare,
-  h('div', { class: 'actiuni' },
-    h('button', { type: 'submit', class: 'principal' }, 'Trece mutarea'),
+    h('button', { type: 'submit', class: 'principal' }, 'Salvează corecția'),
     h('button', { type: 'button', onclick: renunta }, 'Renunță')));
   return form;
 }
@@ -1395,8 +1432,7 @@ async function paginaCarteImobil() {
       h('td', {}, fmtData(p.dataPlecarii)),
       h('td', { class: 'col-extra' }, textContact(p)),
       modifica && h('td', { class: 'nu-tipari' }, h('div', { class: 'actiuni' },
-        h('button', { type: 'button', class: 'mic', onclick: () => deschide(formularPersoana(p, gata, renunta)) }, ic('pencil'), 'Corectează'),
-        !p.dataPlecarii && h('button', { type: 'button', class: 'mic', onclick: () => deschide(formularMutare(p, gata, renunta)) }, 'Mutat'))))))));
+        h('button', { type: 'button', class: 'mic', onclick: () => deschide(formularPersoana(p, gata, renunta)) }, ic('pencil'), 'Corectează'))))))));
 
   // Rezumat pe apartamente (evidența extinsă): înscriși acum, câți locuiesc efectiv, persoanele de contact.
   const rezumat = () => {
@@ -1428,7 +1464,7 @@ async function paginaCarteImobil() {
     }
     const gol = proprietar
       ? 'Nu e încă nimeni înscris în cartea de imobil electronică la apartamentul tău. Depune o cerere de înscriere.'
-      : (persoane.length ? 'Nicio persoană nu corespunde filtrului.' : 'Cartea de imobil e goală. Înscrierile apar aici după ce se rezolvă cererile sau din „Înscriere directă”.');
+      : (persoane.length ? 'Nicio persoană nu corespunde filtrului.' : 'Cartea de imobil e goală. Înscrierile apar aici după ce se rezolvă cererile de înscriere.');
     zona.replaceChildren(...(grupe.size
       ? [...grupe].map(([a, l]) => h('section', { class: 'carte-ap' }, h('h2', {}, `Apartamentul ${a}`, infoAp(a)), tabel(l)))
       : [h('p', { class: 'gol' }, gol)]),
@@ -1440,7 +1476,7 @@ async function paginaCarteImobil() {
       h('h1', {}, proprietar ? `Cartea de imobil — Ap. ${S.cont.apartament}` : 'Cartea de imobil'),
       h('div', { class: 'actiuni' },
         proprietar && h('a', { href: '#/admin/cerere-noua/carte', class: 'buton principal' }, ic('plus'), 'Cerere de înscriere / radiere'),
-        modifica && h('button', { onclick: () => deschide(formularPersoana(null, gata, renunta)) }, ic('plus'), 'Înscriere directă'),
+        modifica && h('a', { href: '#/admin/cerere-noua/carte', class: 'buton principal' }, ic('plus'), 'Cerere pe hârtie'),
         !proprietar && h('button', { onclick: () => tipareste(false) }, ic('printer'), 'Tipărește — format oficial'),
         !proprietar && h('button', { onclick: () => tipareste(true) }, ic('printer'), 'Tipărește — cu contact și nr. persoane'))),
     h('p', { class: 'avertizare nu-tipari' }, ic('lock'), proprietar

@@ -90,7 +90,10 @@ sesizările apartamentului lui.
   Opțional bifează și numărul nou de persoane: se înregistrează atunci două cereri conexate.
 - **Responsabilul cărții de imobil și președintele** văd toată cartea. La înscriere verifică actul de identitate (doar îl văd,
   fără copii — art. 94), confirmă sau corectează datele și cererea devine „Rezolvată”; termen 15 zile (art. 93).
-  Mai au înscriere directă, corectare (vechile valori rămân în istoric) și „Mutat”. Nimeni nu se șterge.
+  **Orice înscriere sau mutare trece printr-o cerere**: din aplicație (passkey) sau **pe hârtie** — responsabilul completează
+  datele cu solicitantul, apasă „Tipărește cererea pentru semnare” (sau „Formular gol”), solicitantul semnează, iar scanul /
+  fotografia se atașează obligatoriu la înregistrare, ca dovadă. „Corectează” rămâne doar pentru greșeli de transcriere
+  (vechile valori rămân în istoric). Nimeni nu se șterge.
 - **Date de contact opționale** la înscriere: telefon, e-mail, „persoană de contact pentru apartament” (nu fac parte din anexa 8;
   le vede doar conducerea, se pot șterge la cerere).
 - **Administratorul** vede cartea (doar citire), ca s-o poată tipări.

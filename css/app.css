@@ -307,6 +307,8 @@ table.carte button.mic { min-height: 36px; padding: .35rem .6rem; font-size: .82
 .carte-ap h2 { font-size: 1.05rem; margin: 1.2rem 0 .4rem; }
 .info-ap { font-weight: 400; font-size: .85rem; color: var(--muted); margin-left: .4rem; }
 .extins { margin-top: 1.5rem; }
+.centrat-text { text-align: center; }
+.semnaturi-cerere { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: 2rem; }
 details summary { cursor: pointer; color: var(--muted); margin: .5rem 0; }
 
 /* ---------- registru (tabel → carduri pe telefon) ---------- */
@@ -518,6 +520,9 @@ button:disabled::after {
   table.carte th, table.carte td { border: .5pt solid #000; color: #000; background: none; padding: 2pt 4pt; }
   table.carte tr { break-inside: avoid; }
   .carte-ap h2 { font-size: 11pt; margin: 8pt 0 3pt; break-after: avoid; }
+  .document-cerere h2 { font-size: 15pt; margin: 14pt 0 2pt; }
+  .document-cerere p { margin: 6pt 0; }
+  .document-cerere td { height: 22pt; }
   body:not(.tipar-extins) .col-extra, body:not(.tipar-extins) .info-ap, body:not(.tipar-extins) .extins,
   body:not(.tipar-extins) .antet-extins, body.tipar-extins .antet-oficial { display: none !important; }
   ol.puncte > li, .decizie { break-inside: avoid; }
