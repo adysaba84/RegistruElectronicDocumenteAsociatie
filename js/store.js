@@ -10,7 +10,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=23';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=24';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -165,7 +165,7 @@ export function verificaContact(p) {
 // Normalizează și validează cererea din formular. Întoarce cele două părți (oricare poate lipsi):
 //   carte    = { operatiune, persoane: [...] } — la înscriere coloanele din HG 295/2021, anexa 8:
 //              { nume, actSerie, actNumar, data, felAdresa, domiciliu } + opțional { telefon, email, contact };
-//              la radiere { id?, nume, data }
+//              la radiere { id, nume, data } (`id` = persoana din cartea de imobil electronică)
 //              (`id` = persoana din cartea de imobil electronică, dacă e deja acolo)
 //   persoane = { nr, de }
 export function pregatesteCerere(c) {
@@ -185,11 +185,12 @@ export function pregatesteCerere(c) {
         email: text(p.email).toLowerCase(),
         contact: Boolean(p.contact),
       }
-      : { ...(text(p.id) ? { id: text(p.id) } : {}), nume: text(p.nume).toUpperCase(), data: text(p.data) }
+      : { id: text(p.id), nume: text(p.nume).toUpperCase(), data: text(p.data) }
     )).filter((p) => p.nume || p.data || p.actNumar || p.domiciliu);
     if (!lista.length) throw new Error('Adaugă cel puțin o persoană pentru cartea de imobil.');
     if (lista.length > MAX_PERSOANE) throw new Error(`Cel mult ${MAX_PERSOANE} de persoane într-o cerere.`);
     for (const p of lista) {
+      if (operatiune === 'radiere' && !p.id) throw new Error('Alege persoana din cartea de imobil.');
       if (!p.nume) throw new Error('Completează numele fiecărei persoane.');
       if (!dataValida(p.data)) throw new Error(`Completează data ${operatiune === 'inscriere' ? 'mutării în imobil' : 'mutării din imobil'} pentru ${p.nume}.`);
       if (operatiune === 'inscriere') {
@@ -228,7 +229,8 @@ export function descriereCerere(x) {
   const n = x.carte.persoane.length;
   const date = [...new Set(x.carte.persoane.map((p) => p.data))].sort();
   const cand = date.length === 1 ? `de la ${dataRo(date[0])}` : `${dataRo(date[0])}–${dataRo(date.at(-1))}`;
-  return `${x.carte.operatiune === 'inscriere' ? 'Înscriere' : 'Radiere'} în cartea de imobil ${cand} — ap. ${x.apartament}, ${n} ${n === 1 ? 'persoană' : 'persoane'}`;
+  const ce = x.preluare ? 'Preluare din cartea de imobil pe hârtie' : `${x.carte.operatiune === 'inscriere' ? 'Înscriere' : 'Radiere'} în cartea de imobil ${cand}`;
+  return `${ce} — ap. ${x.apartament}, ${n} ${n === 1 ? 'persoană' : 'persoane'}`;
 }
 
 export class Registru {
@@ -558,7 +560,9 @@ export class Registru {
       });
       const noi = [];
       if (carte) {
-        noi.push({ ...comun(), categorie: 'cerere_carte', carte, responsabil: 'r01', termen: adaugaZile(data, TERMEN_CARTE_ZILE) });
+        // `preluare` = introducerea inițială din cartea de imobil pe hârtie (dovada: fotografia paginii).
+        noi.push({ ...comun(), categorie: 'cerere_carte', carte, responsabil: 'r01',
+          ...(c.preluare ? { preluare: true, termen: null } : { termen: adaugaZile(data, TERMEN_CARTE_ZILE) }) });
       }
       if (persoane) noi.push({ ...comun(), categorie: 'cerere_persoane', persoane, responsabil: 'administrator', termen: null });
       let nr = nrUrmator(reg);

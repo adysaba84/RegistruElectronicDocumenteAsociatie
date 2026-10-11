@@ -6,7 +6,7 @@
 // ca rezultat final. De aceea variantele care se continuă una pe alta se unesc, iar enunțul se dă mai
 // departe abia după o pauză în vorbire (sau la oprirea microfonului).
 
-import { norm } from './comenzi-voce.js?v=23';
+import { norm } from './comenzi-voce.js?v=24';
 
 const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
 export const PAUZA_MS = 1300;

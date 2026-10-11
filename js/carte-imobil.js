@@ -13,7 +13,7 @@
 // Acces: doar responsabilul cărții de imobil și președintele (art. 93 lit. c) din anexa 1 la HG 295/2021:
 // cartea se prezintă spre verificare numai poliției și S.P.C.E.P.). Nu se păstrează copii ale actelor (art. 94).
 
-import { caleRegistru, FEL_ADRESA, STARI_FINALE, verificaContact } from './store.js?v=23';
+import { caleRegistru, FEL_ADRESA, STARI_FINALE, verificaContact } from './store.js?v=24';
 
 const FISIER = 'carte-imobil.json';
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
@@ -99,10 +99,12 @@ export class CarteImobil {
       for (const p of noi) {
         if (x && p.apartament !== x.apartament) throw new Error('Apartamentul nu corespunde cererii.');
         const persoana = { id: crypto.randomUUID(), ...p, dataPlecarii: null, ...(cerere ? { cerere: `${cerere.nr}/${cerere.an}` } : {}) };
-        CarteImobil.istoric(persoana, u, cerere ? `Înscrisă la cererea nr. ${cerere.nr}/${cerere.an}` : 'Înscrisă');
+        CarteImobil.istoric(persoana, u, x?.preluare
+          ? `Preluată din cartea de imobil pe hârtie (nr. ${cerere.nr}/${cerere.an})`
+          : (cerere ? `Înscrisă la cererea nr. ${cerere.nr}/${cerere.an}` : 'Înscrisă'));
         carte.persoane.push(persoana);
       }
-      return `Înscris în cartea de imobil: ${noi.map((p) => p.nume).join(', ')}`;
+      return `${x?.preluare ? 'Preluat din cartea de imobil pe hârtie' : 'Înscris în cartea de imobil'}: ${noi.map((p) => p.nume).join(', ')}`;
     }, `înscriere ap. ${noi[0]?.apartament}`, cerere);
   }
 

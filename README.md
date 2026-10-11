@@ -94,6 +94,10 @@ sesizările apartamentului lui.
   datele cu solicitantul, apasă „Tipărește cererea pentru semnare” (sau „Formular gol”), solicitantul semnează, iar scanul /
   fotografia se atașează obligatoriu la înregistrare, ca dovadă. „Corectează” rămâne doar pentru greșeli de transcriere
   (vechile valori rămân în istoric). Nimeni nu se șterge.
+- **Radierea** se face doar pentru persoanele înscrise în cartea electronică (se aleg din listă).
+- **Preluare din cartea pe hârtie** (introducerea inițială, responsabilul / președintele): persoanele care sunt deja în cartea
+  veche se trec cu coloanele anexei 8 și fotografia paginii atașată obligatoriu; se înregistrează în registru și intră direct
+  în cartea electronică, apoi pot fi radiate normal.
 - **Date de contact opționale** la înscriere: telefon, e-mail, „persoană de contact pentru apartament” (nu fac parte din anexa 8;
   le vede doar conducerea, se pot șterge la cerere).
 - **Administratorul** vede cartea (doar citire), ca s-o poată tipări.
