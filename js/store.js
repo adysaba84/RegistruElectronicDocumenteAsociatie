@@ -3,11 +3,14 @@
 //   registru/<an>.json                  { an, inregistrari: [...] }
 //   fisiere/<an>/<nr 6 cifre>/<nume>    fișiere atașate
 //
+// Cererile proprietarilor (cartea de imobil, numărul de persoane) sunt tot înregistrări în registru,
+// dar nu se publică: conțin nume și date care privesc doar apartamentul.
+//
 // Numerotarea e unică pe an pentru toate documentele (sesizări, răspunsuri, alte
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=18';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=19';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -15,8 +18,11 @@ export const CATEGORII = {
   propunere: 'Propunere de proiect',
   raspuns: 'Răspuns',
   document: 'Document',
+  cerere_carte: 'Cerere carte de imobil',
+  cerere_persoane: 'Declarație număr de persoane',
 };
 export const CATEGORII_SESIZARE = ['sesizare', 'contestatie', 'propunere'];
+export const CATEGORII_CERERE = ['cerere_carte', 'cerere_persoane'];
 
 export const STARI = {
   repartizata: 'Repartizată',
@@ -25,7 +31,15 @@ export const STARI = {
   raspuns_trimis: 'Răspuns trimis',
   inchisa: 'Închisă',
 };
-export const STARI_FINALE = ['raspuns_trimis', 'inchisa'];
+export const STARI_FINALE = ['raspuns_trimis', 'inchisa', 'rezolvata', 'respinsa'];
+
+// Cererile au un flux scurt: trimisă → rezolvată (înscrisă în carte / înregistrată în e-bloc) sau respinsă.
+export const STARI_CERERE = { repartizata: 'Trimisă', rezolvata: 'Rezolvată', respinsa: 'Respinsă' };
+export const OPERATII_CARTE = { inscriere: 'Înscriere', radiere: 'Radiere (mutare din imobil)' };
+export const FEL_ADRESA = { domiciliu: 'domiciliu', resedinta: 'reședință' };
+// HG nr. 295/2021, anexa 1, art. 93 lit. a): înscrierea în cartea de imobil în 15 zile de la sosire.
+export const TERMEN_CARTE_ZILE = 15;
+export const MAX_PERSOANE = 30;
 
 export const TIPURI_DOC = { intrare: 'Intrare', iesire: 'Ieșire', intern: 'Intern' };
 export const CANALE = { aplicatie: 'Aplicație', platforma: 'Platformă (formular)', email: 'E-mail', ebloc: 'e-bloc', hartie: 'Hârtie' };
@@ -34,7 +48,7 @@ export const OCUPARE = { da: 'Da, mă ocup eu', nu: 'Nu', ajut: 'Pot ajuta' };
 export const MAX_FISIER = 25 * 1024 * 1024;
 
 const json = (obj) => JSON.stringify(obj, null, 2) + '\n';
-const caleRegistru = (an) => `registru/${an}.json`;
+export const caleRegistru = (an) => `registru/${an}.json`;
 const acum = () => new Date().toISOString();
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
 
@@ -88,7 +102,7 @@ export const codVerificare = (hash) => (hash || '').slice(0, 16).toUpperCase().m
 // anterioare, deci modificarea ascunsă a unei înregistrări vechi rupe lanțul.
 function campuriInitiale(x) {
   const { amprenta: _a, istoric: _i, stare: _s, responsabil: _r, raspuns: _rs, raspunsDraft: _d,
-    listaLunara: _l, modificatDe: _m, modificatLa: _ml, fisiere: _f, ...rest } = x;
+    listaLunara: _l, modificatDe: _m, modificatLa: _ml, fisiere: _f, rezolvare: _rz, ...rest } = x;
   return rest;
 }
 
@@ -137,6 +151,55 @@ export function vederePublica(reg) {
     })),
   };
 }
+
+// ---------- cereri (cartea de imobil, numărul de persoane) ----------
+
+const dataValida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && !Number.isNaN(new Date(`${v}T12:00:00`).getTime());
+
+// Normalizează și validează cererea din formular. Întoarce cele două părți (oricare poate lipsi):
+//   carte    = { operatiune, persoane: [{ nume, data, felAdresa? }] }
+//   persoane = { nr, de }
+export function pregatesteCerere(c) {
+  let carte = null;
+  let persoane = null;
+  if (c.carte) {
+    const operatiune = OPERATII_CARTE[c.carte.operatiune] ? c.carte.operatiune : 'inscriere';
+    const lista = (c.carte.persoane || []).map((p) => ({
+      nume: text(p.nume),
+      data: text(p.data),
+      ...(operatiune === 'inscriere' ? { felAdresa: FEL_ADRESA[p.felAdresa] ? p.felAdresa : 'domiciliu' } : {}),
+    })).filter((p) => p.nume || p.data);
+    if (!lista.length) throw new Error('Adaugă cel puțin o persoană pentru cartea de imobil.');
+    if (lista.length > MAX_PERSOANE) throw new Error(`Cel mult ${MAX_PERSOANE} de persoane într-o cerere.`);
+    for (const p of lista) {
+      if (!p.nume) throw new Error('Completează numele fiecărei persoane.');
+      if (!dataValida(p.data)) throw new Error(`Completează data ${operatiune === 'inscriere' ? 'mutării în imobil' : 'mutării din imobil'} pentru ${p.nume}.`);
+    }
+    carte = { operatiune, persoane: lista };
+  }
+  if (c.persoane) {
+    const nr = Number(c.persoane.nr);
+    if (!Number.isInteger(nr) || nr < 0 || nr > MAX_PERSOANE) throw new Error('Numărul de persoane trebuie să fie un număr întreg între 0 și 30.');
+    if (!dataValida(c.persoane.de)) throw new Error('Completează data de la care se schimbă numărul de persoane.');
+    persoane = { nr, de: c.persoane.de };
+  }
+  if (!carte && !persoane) throw new Error('Alege ce vrei să modifici: cartea de imobil, numărul de persoane sau amândouă.');
+  return { carte, persoane };
+}
+
+// Amprenta unei părți a cererii ('' dacă lipsește).
+export const amprentaParte = (parte) => (parte ? amprenta(JSON.stringify(parte)) : Promise.resolve(''));
+
+// Conținutul semnat cu passkey de proprietar. Cuprinde amprentele ambelor părți, ca fiecare din cele
+// două înregistrări să-și poată verifica semnătura fără să conțină datele celeilalte (administratorul
+// nu vede numele din cererea pentru cartea de imobil).
+export function continutCerere({ apartament, nume, semnatDe, semnatLa, hCarte, hPersoane }) {
+  return JSON.stringify(['cerere', apartament, nume, hCarte, hPersoane, semnatDe, semnatLa]);
+}
+
+export const descriereCerere = (x) => (x.categorie === 'cerere_carte'
+  ? `${OPERATII_CARTE[x.carte.operatiune].replace(/ \(.*/, '')} în cartea de imobil — ap. ${x.apartament}, ${x.carte.persoane.length} ${x.carte.persoane.length === 1 ? 'persoană' : 'persoane'}`
+  : `Număr de persoane: ${x.persoane.nr} de la ${x.persoane.de.split('-').reverse().join('.')} — ap. ${x.apartament}`);
 
 export class Registru {
   constructor(gh, ghPublic, cont) {
@@ -436,6 +499,79 @@ export class Registru {
       x.listaLunara = val;
       this.istoric(x, val ? 'Trecută pe lista ședinței lunare a comitetului (art. 23)' : 'Scoasă de pe lista ședinței lunare', true);
     }, 'listă lunară');
+  }
+
+  // Cererea proprietarului: o înregistrare pentru cartea de imobil (la responsabilul cărții) și/sau una
+  // pentru numărul de persoane (la administrator, care îl trece în e-bloc), conexate și scrise în același commit.
+  // `c` = { apartament, nume, canal, carte, persoane } (după `pregatesteCerere`);
+  // `semnatura` = { webauthn, semnatLa, hCarte, hPersoane } când o depune proprietarul din aplicație.
+  async adaugaCerere(c, semnatura = null, fisiere = []) {
+    const proprietar = this.cont.rol === 'proprietar';
+    const apartament = proprietar ? this.cont.apartament : Number(c.apartament);
+    if (!(apartament >= 1)) throw new Error('Alege apartamentul.');
+    if (!text(c.nume)) throw new Error('Completează numele solicitantului.');
+    if (proprietar && !semnatura) throw new Error('Cererea trebuie semnată cu passkey.');
+    const { carte, persoane } = pregatesteCerere(c);
+    if (semnatura && ((await amprentaParte(carte)) !== semnatura.hCarte || (await amprentaParte(persoane)) !== semnatura.hPersoane)) {
+      throw new Error('Cererea nu corespunde celei semnate. Semnează din nou.');
+    }
+    const blobs = await this.urcaFisiere(fisiere);
+    const an = new Date().getFullYear();
+    return this.gh.transact(async (head) => {
+      const reg = await this.citesteAn(an, head);
+      const data = azi();
+      const comun = () => ({
+        data, tip: 'intrare', apartament, nume: text(c.nume),
+        canal: proprietar ? 'aplicatie' : (CANALE[c.canal] ? c.canal : 'hartie'),
+        stare: 'repartizata', fisiere: [], creatDe: this.cont.u, creatLa: acum(),
+        ...(semnatura ? { semnatura: { ...semnatura, semnatDe: this.cont.u } } : {}),
+      });
+      const noi = [];
+      if (carte) {
+        noi.push({ ...comun(), categorie: 'cerere_carte', carte, responsabil: 'r01', termen: adaugaZile(data, TERMEN_CARTE_ZILE) });
+      }
+      if (persoane) noi.push({ ...comun(), categorie: 'cerere_persoane', persoane, responsabil: 'administrator', termen: null });
+      let nr = nrUrmator(reg);
+      for (const x of noi) x.nr = nr++;
+      const files = [];
+      let anterioara = ultimaAmprenta(reg);
+      for (const x of noi) {
+        x.emitent = `Ap. ${apartament}`;
+        x.continut = descriereCerere(x);
+        const alta = noi.find((y) => y !== x);
+        if (alta) x.conexat = `${alta.nr}/${an}`;
+        this.istoric(x, `Înregistrată cu nr. ${x.nr} (canal: ${CANALE[x.canal]})${semnatura ? ', semnată cu passkey' : ''}`);
+        if (x === noi[0]) files.push(...Registru.ataseaza(an, x, blobs));
+        x.amprenta = await amprentaInregistrare(x, anterioara);
+        anterioara = x.amprenta;
+        reg.inregistrari.push(x);
+      }
+      files.push({ path: caleRegistru(an), text: json(reg) });
+      this.ultimRegistru = reg;
+      return { files, result: { an, lista: noi } };
+    }, ({ lista }) => `Nr. ${lista.map((x) => x.nr).join(', ')}: cerere ap. ${apartament} (${this.cont.u})`).then((r) => { this.retine(an); return r; });
+  }
+
+  // Administratorul a trecut numărul de persoane în e-bloc.
+  marcheazaEbloc(an, nr) {
+    return this.modifica(an, nr, (x) => {
+      if (x.categorie !== 'cerere_persoane') throw new Error('Nu e o declarație de număr de persoane.');
+      if (STARI_FINALE.includes(x.stare)) throw new Error('Cererea e deja rezolvată.');
+      x.stare = 'rezolvata';
+      x.rezolvare = { la: acum(), u: this.cont.u, nota: 'Înregistrat în e-bloc' };
+      this.istoric(x, 'Numărul de persoane a fost înregistrat în e-bloc');
+    }, 'înregistrat în e-bloc');
+  }
+
+  respingeCerere(an, nr, motiv) {
+    if (!text(motiv)) return Promise.reject(new Error('Scrie motivul respingerii.'));
+    return this.modifica(an, nr, (x) => {
+      if (!CATEGORII_CERERE.includes(x.categorie)) throw new Error('Nu e o cerere.');
+      if (STARI_FINALE.includes(x.stare)) throw new Error('Cererea e deja rezolvată.');
+      x.stare = 'respinsa';
+      x.rezolvare = { la: acum(), u: this.cont.u, motiv: text(motiv) };
+      this.istoric(x, `Respinsă: ${text(motiv)}`);
+    }, 'cerere respinsă');
   }
 
   async descarca(fisier) {

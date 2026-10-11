@@ -1,19 +1,21 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=18';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=18';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=19';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=19';
 import {
-  Registru, CATEGORII, CATEGORII_SESIZARE, STARI, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
-  termenInfo, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant,
-} from './store.js?v=18';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=18';
+  Registru, CATEGORII, CATEGORII_SESIZARE, CATEGORII_CERERE, STARI, STARI_CERERE, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
+  OPERATII_CARTE, FEL_ADRESA, TERMEN_CARTE_ZILE, MAX_PERSOANE,
+  termenInfo, azi, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant, pregatesteCerere, amprentaParte, continutCerere,
+} from './store.js?v=19';
+import { CarteImobil, ROLURI_CARTE } from './carte-imobil.js?v=19';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=19';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, inchisa, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=18';
+} from './sedinte.js?v=19';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=18';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=18';
-import { pvInText, textInPV } from './pv-text.js?v=18';
-import { Dictare, dictareSuportata } from './dictare.js?v=18';
+} from './config.js?v=19';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=19';
+import { pvInText, textInPV } from './pv-text.js?v=19';
+import { Dictare, dictareSuportata } from './dictare.js?v=19';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -26,6 +28,7 @@ const S = {
   cont: null,      // contul conectat
   token: null,
   reg: null,       // Registru (doar administrație)
+  carte: null,     // CarteImobil (responsabilul cărții de imobil și președintele)
   sed: null,       // Sedinte (comitet)
   chei: null,      // Chei (passkey-uri publice)
   an: new Date().getFullYear(),
@@ -121,14 +124,30 @@ const conectat = () => Boolean(S.cont);
 const eProprietar = () => S.cont?.rol === 'proprietar';
 const eAdministratie = () => conectat() && !eProprietar();
 const poateSesizare = () => eProprietar() || poateInregistra();
-const vizibila = (x) => !eProprietar() || (CATEGORII_SESIZARE.includes(x.categorie) && x.apartament === S.cont.apartament);
+// Cererile: proprietarul le vede pe ale apartamentului; cele pentru cartea de imobil doar responsabilul
+// cărții și președintele; declarațiile de număr de persoane administratorul, președintele și cenzorul.
+const eRespCarte = () => ROLURI_CARTE.includes(S.cont?.rol);
+const poateRezolvaPersoane = () => ['presedinte', 'administrator'].includes(S.cont?.rol);
+const vedeCereri = () => eRespCarte() || ['administrator', 'cenzor'].includes(S.cont?.rol);
+const poateInregistraCerere = () => eRespCarte() || S.cont?.rol === 'administrator';
+function vedeCerere(x) {
+  if (eProprietar()) return x.apartament === S.cont.apartament;
+  return x.categorie === 'cerere_carte' ? eRespCarte() : ['presedinte', 'administrator', 'cenzor'].includes(S.cont?.rol);
+}
+const vizibila = (x) => (CATEGORII_CERERE.includes(x.categorie) ? vedeCerere(x)
+  : !eProprietar() || (CATEGORII_SESIZARE.includes(x.categorie) && x.apartament === S.cont.apartament));
+// Cererile de care trebuie să se ocupe contul conectat.
+const deRezolvat = (x) => CATEGORII_CERERE.includes(x.categorie) && !STARI_FINALE.includes(x.stare) && vedeCerere(x)
+  && (ePresedinte() || x.responsabil === S.cont?.rol);
 const ePresedinte = () => S.cont?.rol === 'presedinte';
 const poateInregistra = () => ['presedinte', 'r10'].includes(S.cont?.rol);
 const poateLucra = (x) => ePresedinte() || x.responsabil === S.cont?.rol;
 const poateNota = () => eAdministratie() && S.cont.rol !== 'cenzor';
 
+const stareText = (x) => (CATEGORII_CERERE.includes(x.categorie) ? STARI_CERERE[x.stare] : STARI[x.stare]) || '';
+
 function insignaStare(x) {
-  return h('span', { class: `eticheta stare-${x.stare}` }, STARI[x.stare]);
+  return h('span', { class: `eticheta stare-${x.stare}` }, stareText(x));
 }
 
 function insignaTermen(x) {
@@ -157,6 +176,7 @@ function cadru(activ, ...continut) {
     ? [
       link('#/admin', 'home', 'Ale mele', 'admin'),
       link('#/admin/sesizare-noua', 'plus', 'Sesizare nouă', 'sesizare-noua'),
+      link('#/admin/cerere-noua', 'book', 'Cerere', 'cerere-noua'),
       link('#/', 'list', 'Toate', 'public'),
       link('#/avizier', 'gavel', 'Avizier', 'avizier'),
     ]
@@ -165,6 +185,7 @@ function cadru(activ, ...continut) {
       link('#/admin', 'home', 'Sesizări', 'admin'),
       poateInregistra() && link('#/admin/sesizare-noua', 'plus', 'Sesizare', 'sesizare-noua'),
       link('#/admin/registru', 'notebook', 'Registru', 'registru'),
+      vedeCereri() && link('#/admin/cereri', 'book', 'Cereri', 'cereri'),
       participaLaSedinte() && link('#/admin/sedinte', 'calendar', 'Ședințe', 'sedinte'),
       ePresedinte() && link('#/admin/utilizatori', 'users', 'Utilizatori', 'utilizatori'),
       link('#/avizier', 'gavel', 'Avizier', 'avizier'),
@@ -214,7 +235,7 @@ function eroarePagina(activ, e) {
 
 function iesire() {
   stergeSesiune();
-  Object.assign(S, { cont: null, token: null, reg: null, sed: null });
+  Object.assign(S, { cont: null, token: null, reg: null, sed: null, carte: null });
   S.filtre = { text: '', stare: '', domeniu: '', rapid: '' };
   mergi('#/');
 }
@@ -544,6 +565,7 @@ async function intra(cont, token) {
   const ghPublic = new GitHubRepo({ apiBase: API, token, repo: REPO_PUBLIC });
   S.reg = new Registru(gh, ghPublic, cont);
   S.sed = new Sedinte(gh, ghPublic, cont);
+  S.carte = new CarteImobil(S.reg);
   await Promise.all([ghPublic.info(), S.reg.init()]);
   S.ani = await S.reg.ani();
   S.reg.sincronizeazaPublic(new Date().getFullYear());
@@ -649,7 +671,8 @@ async function paginaAdmin() {
   let reg;
   try { reg = await S.reg.citesteAn(S.an); } catch (e) { return eroarePagina('admin', e); }
   const toate = reg.inregistrari.filter((x) => CATEGORII_SESIZARE.includes(x.categorie) && vizibila(x));
-  if (eProprietar()) return paginaMele(toate);
+  if (eProprietar()) return paginaMele(toate, reg.inregistrari.filter((x) => CATEGORII_CERERE.includes(x.categorie) && vizibila(x)));
+  const cereriDeRezolvat = reg.inregistrari.filter(deRezolvat).length;
   const nr = (f) => toate.filter(f).length;
   const deschise = (x) => !STARI_FINALE.includes(x.stare);
   const n = {
@@ -676,6 +699,8 @@ async function paginaAdmin() {
     h('div', { class: 'bara' },
       h('h1', {}, 'Sesizări ', selectAn(paginaAdmin)),
       poateInregistra() && h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Înregistrează sesizare')),
+    cereriDeRezolvat > 0 && h('p', { class: 'avertizare' }, ic('book'), ' ',
+      h('a', { href: '#/admin/cereri' }, `${cereriDeRezolvat} ${cereriDeRezolvat === 1 ? 'cerere de la proprietari așteaptă' : 'cereri de la proprietari așteaptă'} rezolvarea`), '.'),
     n.depasit > 0 && h('p', { class: 'eroare', role: 'alert' },
       `${n.depasit} ${n.depasit === 1 ? 'sesizare a depășit' : 'sesizări au depășit'} termenul legal de răspuns de ${TERMEN_RASPUNS_ZILE} zile (art. 57 alin. (1) lit. e) din Legea nr. 196/2018).`),
     contoare,
@@ -684,7 +709,7 @@ async function paginaAdmin() {
   deseneaza();
 }
 
-function paginaMele(toate) {
+function paginaMele(toate, cereri = []) {
   S.filtre.rapid = '';
   const zona = h('div');
   const deseneaza = () => zona.replaceChildren(toate.length
@@ -696,7 +721,12 @@ function paginaMele(toate) {
       h('a', { href: '#/admin/sesizare-noua', class: 'buton principal' }, '+ Sesizare nouă')),
     h('p', { class: 'slab' }, `Primești răspuns scris în cel mult ${TERMEN_RASPUNS_ZILE} zile de la înregistrare. Pe pagina publică sesizarea apare fără numele tău și fără apartament.`),
     toate.length > 3 && bareFiltre(deseneaza),
-    zona);
+    zona,
+    h('div', { class: 'bara' },
+      h('h2', {}, 'Cererile mele'),
+      h('a', { href: '#/admin/cerere-noua', class: 'buton' }, ic('book'), 'Cerere nouă')),
+    h('p', { class: 'slab mic' }, 'Înscriere sau radiere în cartea de imobil și numărul de persoane care locuiesc efectiv în apartament (pentru cheltuieli).'),
+    cereri.length ? listaCereri(cereri) : h('p', { class: 'gol' }, `Nicio cerere în ${S.an}.`));
   deseneaza();
 }
 
@@ -762,9 +792,11 @@ function formularSesizare() {
 
 async function paginaAdminDetaliu(an, nr) {
   seIncarca('admin');
-  let x;
-  try { x = (await S.reg.citesteAn(an)).inregistrari.find((i) => i.nr === nr); } catch (e) { return eroarePagina('admin', e); }
-  if (!x || !vizibila(x)) return afiseaza('admin', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există.`), h('a', { href: '#/admin' }, '← Înapoi'));
+  let reg;
+  try { reg = await S.reg.citesteAn(an); } catch (e) { return eroarePagina('admin', e); }
+  const x = reg.inregistrari.find((i) => i.nr === nr);
+  if (!x || !vizibila(x)) return afiseaza('admin', h('p', { class: 'eroare' }, `Nr. ${nr}/${an} nu există sau nu ai acces la el.`), h('a', { href: '#/admin' }, '← Înapoi'));
+  if (CATEGORII_CERERE.includes(x.categorie)) return detaliuCerere(an, x, reg);
   if (!CATEGORII_SESIZARE.includes(x.categorie)) return detaliuDocument(an, x);
 
   const actiune = (fn, mesaj) => async (ev) => {
@@ -850,7 +882,7 @@ async function paginaAdminDetaliu(an, nr) {
     h('div', { class: 'card' }, campuriSesizare(x, { admin: true })),
     blocFisiere(x),
     blocuri,
-    act.length && h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Acțiuni'), h('div', { class: 'actiuni-col' }, act)),
+    act.length > 0 && h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Acțiuni'), h('div', { class: 'actiuni-col' }, act)),
     blocIstoric(x),
     h('p', { class: 'mic slab nu-tipari' }, 'Amprenta înregistrării: ', h('code', {}, codVerificare(x.amprenta) || '—')));
 }
@@ -887,14 +919,479 @@ function detaliuDocument(an, x) {
     blocFisiere(x));
 }
 
+// ---------- cereri: cartea de imobil și numărul de persoane ----------
+
+const normNume = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+const selectFel = (valoare, attrs = {}) => h('select', attrs, Object.entries(FEL_ADRESA).map(([v, t]) => h('option', { value: v, selected: v === valoare }, t)));
+
+function listaCereri(lista) {
+  if (!lista.length) return h('p', { class: 'gol' }, 'Nicio cerere.');
+  return h('ul', { class: 'lista-sesizari' }, [...lista].sort((a, b) => b.nr - a.nr).map((x) => h('li', {},
+    h('a', { href: `#/admin/s/${S.an}/${x.nr}`, class: 'rand-sesizare' },
+      h('span', { class: `placa ${termenInfo(x)?.nivel === 'depasit' ? 'depasit' : termenInfo(x)?.nivel === 'aproape' ? 'aproape' : x.stare}` },
+        ic(x.categorie === 'cerere_carte' ? 'book' : 'users')),
+      h('div', { class: 'rand-cap' },
+        h('span', { class: 'nr' }, `Nr. ${x.nr}`),
+        h('span', { class: 'slab' }, fmtData(x.data)),
+        h('span', { class: 'eticheta' }, CATEGORII[x.categorie]),
+        h('span', { class: 'dreapta' }, insignaTermen(x), insignaStare(x))),
+      h('div', { class: 'rand-problema' }, x.continut),
+      h('div', { class: 'rand-meta slab' }, numeRol(x.responsabil),
+        x.conexat ? ` · conexată cu nr. ${x.conexat}` : '',
+        x.semnatura ? ' · semnată cu passkey' : ` · ${CANALE[x.canal]}`)))));
+}
+
+async function paginaCereri() {
+  seIncarca('cereri');
+  let reg;
+  try { reg = await S.reg.citesteAn(S.an); } catch (e) { return eroarePagina('cereri', e); }
+  const toate = reg.inregistrari.filter((x) => CATEGORII_CERERE.includes(x.categorie) && vizibila(x));
+  const deFacut = toate.filter(deRezolvat);
+  let doarDeFacut = deFacut.length > 0;
+  const zona = h('div');
+  const deseneaza = () => zona.replaceChildren(listaCereri(doarDeFacut ? deFacut : toate));
+  const descriere = [
+    eRespCarte() && `Cererile de înscriere și radiere în cartea de imobil: verifici actul de identitate și le completezi în cartea de imobil în ${TERMEN_CARTE_ZILE} zile de la sosire (HG nr. 295/2021, anexa 1, art. 93).`,
+    poateRezolvaPersoane() && 'Declarațiile privind numărul de persoane care locuiesc efectiv: le treci în e-bloc și apeși „Am înregistrat în e-bloc”.',
+    S.cont.rol === 'cenzor' && 'Declarațiile privind numărul de persoane (doar citire).',
+  ].filter(Boolean).join(' ');
+  afiseaza('cereri',
+    h('div', { class: 'bara' },
+      h('h1', {}, 'Cereri ', selectAn(paginaCereri)),
+      h('div', { class: 'actiuni' },
+        eRespCarte() && h('a', { href: '#/admin/carte-imobil', class: 'buton' }, ic('book'), 'Cartea de imobil'),
+        poateInregistraCerere() && h('a', { href: '#/admin/cerere-noua', class: 'buton principal' }, ic('plus'), 'Înregistrează cerere'))),
+    h('p', { class: 'slab' }, descriere),
+    deFacut.length > 0 && h('label', { class: 'bifa' },
+      h('input', { type: 'checkbox', checked: doarDeFacut, onchange: (ev) => { doarDeFacut = ev.target.checked; deseneaza(); } }),
+      `Doar cele de rezolvat (${deFacut.length} din ${toate.length})`),
+    zona);
+  deseneaza();
+}
+
+// Cererea proprietarului (semnată cu passkey) sau cererea pe hârtie înregistrată de responsabil / administrator.
+function formularCerere() {
+  const proprietar = eProprietar();
+  const poateCarte = proprietar || eRespCarte();
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const fisiere = !proprietar && h('input', { type: 'file', multiple: true, accept: '.pdf,.jpg,.jpeg,.png,.heic' });
+
+  let operatiune = 'inscriere';
+  const persoaneZona = h('div', { class: 'persoane-cerere' });
+  const actualizeaza = () => {
+    const ins = operatiune === 'inscriere';
+    persoaneZona.querySelectorAll('.et-data').forEach((e) => { e.textContent = ins ? 'Data mutării în imobil *' : 'Data mutării din imobil *'; });
+    persoaneZona.querySelectorAll('.p-fel-et').forEach((e) => { e.hidden = !ins; });
+  };
+  const randPersoana = () => {
+    const rand = h('div', { class: 'rand-persoana' },
+      h('label', {}, 'Nume și prenume *', h('input', { class: 'p-nume', maxlength: 120, autocomplete: 'off' })),
+      h('label', {}, h('span', { class: 'et-data' }), h('input', { class: 'p-data', type: 'date' })),
+      h('label', { class: 'p-fel-et' }, 'Felul adresei', selectFel('domiciliu', { class: 'p-fel' })),
+      h('button', { type: 'button', class: 'sterge-persoana', title: 'Scoate persoana', 'aria-label': 'Scoate persoana', onclick: () => {
+        if (persoaneZona.children.length > 1) rand.remove();
+      } }, ic('x')));
+    persoaneZona.append(rand);
+    actualizeaza();
+  };
+  randPersoana();
+
+  const cuCarte = poateCarte && h('input', { type: 'checkbox', checked: true, onchange: () => { zonaCarte.hidden = !cuCarte.checked; } });
+  const zonaCarte = poateCarte && h('div', { class: 'zona-cerere' },
+    h('div', { class: 'optiuni' }, Object.entries(OPERATII_CARTE).map(([v, t]) => h('label', { class: 'bifa' },
+      h('input', { type: 'radio', name: 'operatiune', value: v, checked: v === operatiune, onchange: () => { operatiune = v; actualizeaza(); } }), t))),
+    persoaneZona,
+    h('button', { type: 'button', onclick: randPersoana }, ic('plus'), 'Încă o persoană'),
+    h('p', { class: 'slab mic' }, `Responsabilul cărții de imobil îți cere actul de identitate al fiecărei persoane ca să-l vadă (fără copii, art. 94) și face înscrierea în ${TERMEN_CARTE_ZILE} zile de la sosire (HG nr. 295/2021, anexa 1, art. 93).`));
+
+  const nrInput = h('input', { type: 'number', min: 0, max: MAX_PERSOANE, step: 1, inputmode: 'numeric' });
+  const deInput = h('input', { type: 'date', value: azi() });
+  const cuNr = h('input', { type: 'checkbox', checked: !poateCarte, disabled: !poateCarte, onchange: () => { zonaNr.hidden = !cuNr.checked; } });
+  const zonaNr = h('div', { class: 'zona-cerere', hidden: !cuNr.checked },
+    h('div', { class: 'grila' },
+      h('label', {}, 'Câte persoane locuiesc efectiv în apartament *', nrInput),
+      h('label', {}, 'De la data *', deInput)),
+    h('p', { class: 'slab mic' }, 'Numărul de persoane pentru cheltuieli nu e același lucru cu cartea de imobil: contează cine locuiește efectiv în apartament, nu cine are domiciliul aici. Cererea merge la administrator, care îl trece în e-bloc.'));
+
+  const textButon = proprietar ? [ic('fingerprint'), 'Semnează cu passkey și trimite'] : ['Înregistrează cererea'];
+  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      const c = {
+        apartament: proprietar ? S.cont.apartament : Number(form.apartament.value),
+        nume: form.nume.value.trim(),
+        canal: proprietar ? 'aplicatie' : form.canal.value,
+        carte: cuCarte?.checked ? {
+          operatiune,
+          persoane: [...persoaneZona.querySelectorAll('.rand-persoana')].map((r) => ({
+            nume: r.querySelector('.p-nume').value, data: r.querySelector('.p-data').value, felAdresa: r.querySelector('.p-fel').value,
+          })),
+        } : null,
+        persoane: cuNr.checked ? { nr: nrInput.value === '' ? NaN : Number(nrInput.value), de: deInput.value } : null,
+      };
+      if (!c.nume) throw new Error('Completează numele solicitantului.');
+      const parti = pregatesteCerere(c);
+      const noi = fisiere ? [...fisiere.files] : [];
+      const mare = noi.find((f) => f.size > MAX_FISIER);
+      if (mare) throw new Error(`„${mare.name}” depășește 25 MB.`);
+      let semnatura = null;
+      if (proprietar) {
+        const semnatLa = new Date().toISOString();
+        const [hCarte, hPersoane] = await Promise.all([amprentaParte(parti.carte), amprentaParte(parti.persoane)]);
+        const webauthn = await semneazaCu(continutCerere({ apartament: c.apartament, nume: c.nume, semnatDe: S.cont.u, semnatLa, hCarte, hPersoane }));
+        semnatura = { webauthn, semnatLa, hCarte, hPersoane };
+      }
+      btn.textContent = 'Se înregistrează…';
+      const r = await S.reg.adaugaCerere({ ...c, ...parti }, semnatura, noi);
+      const [a, b] = r.lista;
+      S.mesaj = b
+        ? `Cererea a fost înregistrată cu nr. ${a.nr} (cartea de imobil) și nr. ${b.nr} (numărul de persoane) din ${fmtData(a.data)}.`
+        : `Cererea a fost înregistrată cu nr. ${a.nr} din ${fmtData(a.data)}.`;
+      mergi(`#/admin/s/${r.an}/${a.nr}`);
+    } catch (e) {
+      btn.disabled = false;
+      btn.replaceChildren(...textButon);
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('p', { class: 'slab' }, proprietar
+    ? 'Cererea primește număr de înregistrare și o semnezi cu passkey-ul tău (amprentă, față sau PIN), ca dovadă a datei la care ai anunțat.'
+    : 'Pentru cererile primite pe hârtie sau pe e-mail. Atașează scanul cererii semnate.'),
+  h('div', { class: 'grila' },
+    proprietar
+      ? h('label', {}, 'Apartamentul', h('input', { value: `Ap. ${S.cont.apartament}`, disabled: true }))
+      : h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
+        h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1 }, `Ap. ${i + 1}`)))),
+    h('label', {}, 'Solicitant (nume și prenume) *', h('input', { name: 'nume', required: true, maxlength: 120, autocomplete: proprietar ? 'name' : 'off' })),
+    !proprietar && h('label', {}, 'Primită prin *', h('select', { name: 'canal', required: true },
+      Object.entries(CANALE).filter(([k]) => k !== 'aplicatie').map(([v, t]) => h('option', { value: v }, t))))),
+  poateCarte && h('fieldset', {}, h('legend', {}, h('label', { class: 'bifa' }, cuCarte, 'Modificare în cartea de imobil')), zonaCarte),
+  h('fieldset', {}, h('legend', {}, h('label', { class: 'bifa' }, cuNr, poateCarte ? 'Se schimbă și numărul de persoane care locuiesc efectiv' : 'Numărul de persoane care locuiesc efectiv')), zonaNr),
+  fisiere && h('label', {}, 'Scanul cererii (max. 25 MB fiecare)', fisiere),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, ...textButon),
+    h('a', { href: proprietar ? '#/admin' : '#/admin/cereri', class: 'buton' }, 'Renunță')));
+  afiseaza('cerere-noua', h('h1', {}, proprietar ? 'Cerere: cartea de imobil și numărul de persoane' : 'Înregistrează o cerere'), form);
+}
+
+// Verifică semnătura proprietarului pe partea de cerere din această înregistrare.
+async function blocSemnaturaCerere(x) {
+  const s = x.semnatura;
+  const amp = await amprentaParte(x.categorie === 'cerere_carte' ? x.carte : x.persoane);
+  if (amp !== (x.categorie === 'cerere_carte' ? s.hCarte : s.hPersoane)) {
+    return h('p', { class: 'eroare' }, '✗ Cererea a fost modificată după ce a fost semnată.');
+  }
+  return blocSemnatura(s.webauthn, continutCerere({ apartament: x.apartament, nume: x.nume, semnatDe: s.semnatDe, semnatLa: s.semnatLa, hCarte: s.hCarte, hPersoane: s.hPersoane }));
+}
+
+// Responsabilul vede actul de identitate și completează datele din el; cererea devine rezolvată.
+function formularInscriere(an, x, gata) {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const randuri = x.carte.persoane.map((p) => h('fieldset', { class: 'persoana-carte' },
+    h('legend', {}, p.nume),
+    h('div', { class: 'grila' },
+      h('label', {}, 'Numele și prenumele (ca în act) *', h('input', { name: 'nume', value: p.nume, required: true, maxlength: 120 })),
+      h('label', {}, 'Felul adresei', selectFel(p.felAdresa, { name: 'felAdresa' })),
+      h('label', {}, 'Seria actului de identitate', h('input', { name: 'actSerie', maxlength: 4, autocomplete: 'off' })),
+      h('label', {}, 'Numărul actului de identitate *', h('input', { name: 'actNumar', required: true, maxlength: 12, autocomplete: 'off' })),
+      h('label', {}, 'Data mutării în imobil *', h('input', { name: 'dataMutarii', type: 'date', value: p.data, required: true })),
+      h('label', { class: 'lat' }, 'Domiciliul (cum e înscris în actul de identitate) *', h('input', { name: 'domiciliu', required: true, maxlength: 300 })))));
+  const camp = (f, n) => f.querySelector(`[name=${n}]`).value;
+  const form = h('form', { class: 'formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      await S.carte.inscrie(randuri.map((f) => ({
+        apartament: x.apartament, nume: camp(f, 'nume'), felAdresa: camp(f, 'felAdresa'), actSerie: camp(f, 'actSerie'),
+        actNumar: camp(f, 'actNumar'), dataMutarii: camp(f, 'dataMutarii'), domiciliu: camp(f, 'domiciliu'),
+      })), { an, nr: x.nr });
+      S.mesaj = 'Persoanele au fost înscrise în cartea de imobil; cererea e rezolvată.';
+      gata();
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } }, randuri, eroare,
+  h('div', { class: 'actiuni' }, h('button', { type: 'submit', class: 'principal' }, ic('book'), 'Înscrie în cartea de imobil')));
+  return h('div', { class: 'card nu-tipari' },
+    h('h2', {}, 'Înscriere în cartea de imobil'),
+    h('p', { class: 'slab mic' }, 'Verifică vizual actul de identitate al fiecărei persoane (pentru copiii sub 14 ani, certificatul de naștere) și completează datele din el. Nu se fac și nu se păstrează copii ale actelor (art. 94).'),
+    form);
+}
+
+async function formularRadiere(an, x, gata) {
+  const carte = await S.carte.citeste();
+  const active = carte.persoane.filter((p) => p.apartament === x.apartament && !p.dataPlecarii);
+  if (!active.length) {
+    return h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Radiere din cartea de imobil'),
+      h('p', { class: 'avertizare' }, `În cartea de imobil nu e nicio persoană înscrisă la ap. ${x.apartament} care să nu se fi mutat deja. Verifică cartea de imobil sau respinge cererea.`));
+  }
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const randuri = x.carte.persoane.map((p) => {
+    const potrivita = active.find((a) => normNume(a.nume) === normNume(p.nume));
+    return h('fieldset', { class: 'persoana-carte' },
+      h('legend', {}, p.nume),
+      h('div', { class: 'grila' },
+        h('label', {}, 'Persoana din cartea de imobil *', h('select', { name: 'id', required: true },
+          h('option', { value: '' }, 'Alege…'),
+          active.map((a) => h('option', { value: a.id, selected: a === potrivita }, `${a.nume} (din ${fmtData(a.dataMutarii)})`)))),
+        h('label', {}, 'Data mutării din imobil *', h('input', { name: 'data', type: 'date', value: p.data, required: true }))));
+  });
+  const form = h('form', { class: 'formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const plecari = randuri.map((f) => ({ id: f.querySelector('[name=id]').value, data: f.querySelector('[name=data]').value }));
+    if (new Set(plecari.map((p) => p.id)).size !== plecari.length) {
+      eroare.textContent = 'Ai ales aceeași persoană de două ori.';
+      eroare.hidden = false;
+      return;
+    }
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      await S.carte.radiaza(plecari, { an, nr: x.nr });
+      S.mesaj = 'Data mutării din imobil a fost trecută în cartea de imobil; cererea e rezolvată.';
+      gata();
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } }, randuri, eroare,
+  h('div', { class: 'actiuni' }, h('button', { type: 'submit', class: 'principal' }, ic('book'), 'Trece mutarea în cartea de imobil')));
+  return h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Radiere din cartea de imobil'), form);
+}
+
+async function detaliuCerere(an, x, reg) {
+  const reincarca = () => paginaAdminDetaliu(an, x.nr);
+  const actiune = (fn, mesaj) => async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true;
+    try {
+      await fn();
+      S.mesaj = mesaj;
+      reincarca();
+    } catch (e) {
+      btn.disabled = false;
+      alert(mesajEroare(e));
+    }
+  };
+  const finala = STARI_FINALE.includes(x.stare);
+  const carte = x.categorie === 'cerere_carte';
+  const alta = x.conexat && reg.inregistrari.find((i) => `${i.nr}/${an}` === x.conexat);
+  const rand = (et, val) => (val || val === 0 ? [h('dt', {}, et), h('dd', {}, val)] : null);
+  const t = termenInfo(x);
+
+  const act = [];
+  if (!finala && (carte ? eRespCarte() : poateRezolvaPersoane())) {
+    if (!carte) act.push(h('button', { class: 'principal', onclick: actiune(() => S.reg.marcheazaEbloc(an, x.nr), 'Marcată ca înregistrată în e-bloc.') }, ic('check'), 'Am înregistrat în e-bloc'));
+    act.push(h('button', { onclick: (ev) => {
+      const motiv = prompt('Motivul respingerii (îl vede proprietarul):');
+      if (motiv && motiv.trim()) actiune(() => S.reg.respingeCerere(an, x.nr, motiv), 'Cererea a fost respinsă.')(ev);
+    } }, 'Respinge'));
+  }
+  let rezolvare = null;
+  if (carte && eRespCarte() && !finala) {
+    try {
+      rezolvare = x.carte.operatiune === 'inscriere' ? formularInscriere(an, x, reincarca) : await formularRadiere(an, x, reincarca);
+    } catch (e) { rezolvare = h('p', { class: 'eroare' }, mesajEroare(e)); }
+  }
+
+  afiseaza(eProprietar() ? 'admin' : 'cereri',
+    h('a', { href: eProprietar() ? '#/admin' : '#/admin/cereri', class: 'inapoi nu-tipari' }, ic('arrow-left'), eProprietar() ? 'Ale mele' : 'Cereri'),
+    h('div', { class: 'doar-tipar antet-tipar' }, h('strong', {}, ASOCIATIA.nume), h('span', {}, ASOCIATIA.adresa)),
+    h('h1', {}, `${CATEGORII[x.categorie]} nr. ${x.nr} din ${fmtData(x.data)}`),
+    h('p', { class: 'insigne' }, insignaStare(x), insignaTermen(x)),
+    t && t.nivel !== 'ok' && h('p', { class: t.nivel === 'depasit' ? 'eroare' : 'avertizare', role: 'alert' },
+      `Termenul de ${TERMEN_CARTE_ZILE} zile pentru înscrierea în cartea de imobil (HG nr. 295/2021, anexa 1, art. 93 lit. a)) ${t.nivel === 'depasit' ? 'a expirat' : 'expiră'} pe ${fmtData(x.termen)}.`),
+    h('div', { class: 'card' },
+      h('dl', { class: 'detalii' },
+        rand('Apartament', `Ap. ${x.apartament}`),
+        rand('Solicitant', x.nume),
+        rand('Primită prin', CANALE[x.canal]),
+        rand('Se ocupă', numeRol(x.responsabil)),
+        carte && rand('Operațiune', OPERATII_CARTE[x.carte.operatiune]),
+        !carte && rand('Persoane care locuiesc efectiv', `${x.persoane.nr}, de la ${fmtData(x.persoane.de)}`),
+        carte && rand('Termen', x.termen && fmtData(x.termen)),
+        rand('Conexată cu', alta && vizibila(alta)
+          ? h('a', { href: `#/admin/s/${an}/${alta.nr}` }, `nr. ${x.conexat} — ${CATEGORII[alta.categorie]}`)
+          : (x.conexat ? `nr. ${x.conexat} (${carte ? 'numărul de persoane, la administrator' : 'cartea de imobil, la responsabilul cărții'})` : '')),
+        x.rezolvare && rand(x.stare === 'respinsa' ? 'Motivul respingerii' : 'Rezolvare',
+          `${x.rezolvare.motiv || x.rezolvare.nota} — ${eticheta(x.rezolvare.u)}, ${fmtDataOra(x.rezolvare.la)}`)),
+      carte && h('table', { class: 'carte' },
+        h('thead', {}, h('tr', {},
+          h('th', {}, 'Nume și prenume'),
+          h('th', {}, x.carte.operatiune === 'inscriere' ? 'Data mutării în imobil' : 'Data mutării din imobil'),
+          x.carte.operatiune === 'inscriere' && h('th', {}, 'Felul adresei'))),
+        h('tbody', {}, x.carte.persoane.map((p) => h('tr', {},
+          h('td', {}, p.nume), h('td', {}, fmtData(p.data)), p.felAdresa && h('td', {}, FEL_ADRESA[p.felAdresa])))))),
+    x.semnatura
+      ? await blocSemnaturaCerere(x)
+      : h('p', { class: 'slab mic' }, `Cerere ${CANALE[x.canal].toLowerCase()}, înregistrată de ${eticheta(x.creatDe)}.`),
+    blocFisiere(x),
+    rezolvare,
+    act.length > 0 && h('div', { class: 'card nu-tipari' }, h('h2', {}, 'Acțiuni'), h('div', { class: 'actiuni' }, act)),
+    blocIstoric(x),
+    h('p', { class: 'mic slab nu-tipari' }, 'Amprenta înregistrării: ', h('code', {}, codVerificare(x.amprenta) || '—')));
+}
+
+// Cartea de imobil (HG nr. 295/2021, anexa 8): doar responsabilul cărții și președintele.
+function formularPersoana(p, gata, renunta) {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    eroare.hidden = true;
+    const v = Object.fromEntries(new FormData(form).entries());
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      if (p) await S.carte.corecteaza(p.id, v); else await S.carte.inscrie([v]);
+      S.mesaj = p ? 'Înscrierea a fost corectată.' : 'Persoana a fost înscrisă în cartea de imobil.';
+      gata();
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('h2', {}, p ? `Corectează: ${p.nume}` : 'Înscriere directă'),
+  !p && h('p', { class: 'slab mic' }, 'Pentru persoanele venite fără cerere în aplicație. Verifică vizual actul de identitate; nu se fac copii (art. 94).'),
+  h('div', { class: 'grila' },
+    h('label', {}, 'Apartamentul *', h('select', { name: 'apartament', required: true },
+      h('option', { value: '' }, 'Alege…'), Array.from({ length: APARTAMENTE }, (_, i) => h('option', { value: i + 1, selected: p?.apartament === i + 1 }, `Ap. ${i + 1}`)))),
+    h('label', {}, 'Numele și prenumele *', h('input', { name: 'nume', required: true, maxlength: 120, value: p?.nume })),
+    h('label', {}, 'Seria actului de identitate', h('input', { name: 'actSerie', maxlength: 4, autocomplete: 'off', value: p?.actSerie })),
+    h('label', {}, 'Numărul actului de identitate *', h('input', { name: 'actNumar', required: true, maxlength: 12, autocomplete: 'off', value: p?.actNumar })),
+    h('label', {}, 'Data mutării în imobil *', h('input', { name: 'dataMutarii', type: 'date', required: true, value: p?.dataMutarii })),
+    h('label', {}, 'Felul adresei', selectFel(p?.felAdresa || 'domiciliu', { name: 'felAdresa' })),
+    h('label', { class: 'lat' }, 'Domiciliul (cum e înscris în actul de identitate) *', h('input', { name: 'domiciliu', required: true, maxlength: 300, value: p?.domiciliu })),
+    p && h('label', {}, 'Data mutării din imobil', h('input', { name: 'dataPlecarii', type: 'date', value: p.dataPlecarii || '' }))),
+  p && (p.istoric || []).length > 0 && h('details', {}, h('summary', {}, 'Istoricul înscrierii'),
+    h('ol', { class: 'istoric' }, p.istoric.map((i) => h('li', {}, h('span', { class: 'slab mic' }, `${fmtDataOra(i.la)} · ${eticheta(i.u)}`), h('span', {}, i.actiune))))),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, p ? 'Salvează corecția' : 'Înscrie'),
+    h('button', { type: 'button', onclick: renunta }, 'Renunță')));
+  return form;
+}
+
+function formularMutare(p, gata, renunta) {
+  const eroare = h('p', { class: 'eroare', role: 'alert', hidden: true });
+  const data = h('input', { type: 'date', required: true, value: azi() });
+  const form = h('form', { class: 'card formular', onsubmit: async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      await S.carte.radiaza([{ id: p.id, data: data.value }]);
+      S.mesaj = `Data mutării din imobil a fost trecută pentru ${p.nume}.`;
+      gata();
+    } catch (e) {
+      btn.disabled = false;
+      eroare.textContent = mesajEroare(e);
+      eroare.hidden = false;
+    }
+  } },
+  h('h2', {}, `Mutare din imobil: ${p.nume}`),
+  h('div', { class: 'grila' }, h('label', {}, 'Data mutării din imobil *', data)),
+  eroare,
+  h('div', { class: 'actiuni' },
+    h('button', { type: 'submit', class: 'principal' }, 'Trece mutarea'),
+    h('button', { type: 'button', onclick: renunta }, 'Renunță')));
+  return form;
+}
+
+async function paginaCarteImobil() {
+  seIncarca('cereri');
+  let carte;
+  let reg;
+  try {
+    [carte, reg] = await Promise.all([S.carte.citeste(), S.reg.citesteAn(new Date().getFullYear())]);
+  } catch (e) { return eroarePagina('cereri', e); }
+  const deFacut = reg.inregistrari.filter((x) => x.categorie === 'cerere_carte' && deRezolvat(x)).length;
+  let ap = '';
+  let ascundeMutati = false;
+  const zonaForm = h('div', { class: 'nu-tipari' });
+  const zona = h('div');
+  const gata = () => paginaCarteImobil();
+  const renunta = () => zonaForm.replaceChildren();
+  const deschide = (el) => { zonaForm.replaceChildren(el); zonaForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
+  const tabel = (lista) => h('div', { class: 'tabel-carte' }, h('table', { class: 'carte' },
+    h('thead', {},
+      h('tr', {},
+        h('th', { rowspan: 2 }, 'Numele de familie și prenumele (cu litere de tipar)'),
+        h('th', { colspan: 2 }, 'Actul de identitate'),
+        h('th', { rowspan: 2 }, 'Data mutării în imobil și felul adresei (de domiciliu sau de reședință)'),
+        h('th', { rowspan: 2 }, 'Domiciliul persoanei (înscris în actul de identitate)'),
+        h('th', { rowspan: 2 }, 'Data mutării din imobil'),
+        h('th', { rowspan: 2, class: 'nu-tipari' }, '')),
+      h('tr', {}, h('th', {}, 'Seria'), h('th', {}, 'Numărul'))),
+    h('tbody', {}, lista.map((p) => h('tr', { class: p.dataPlecarii ? 'mutat' : null },
+      h('td', {}, p.nume),
+      h('td', {}, p.actSerie),
+      h('td', {}, p.actNumar),
+      h('td', {}, `${fmtData(p.dataMutarii)}, ${FEL_ADRESA[p.felAdresa] || ''}`),
+      h('td', {}, p.domiciliu),
+      h('td', {}, fmtData(p.dataPlecarii)),
+      h('td', { class: 'nu-tipari' }, h('div', { class: 'actiuni' },
+        h('button', { type: 'button', class: 'mic', onclick: () => deschide(formularPersoana(p, gata, renunta)) }, ic('pencil'), 'Corectează'),
+        !p.dataPlecarii && h('button', { type: 'button', class: 'mic', onclick: () => deschide(formularMutare(p, gata, renunta)) }, 'Mutat'))))))));
+
+  const deseneaza = () => {
+    const lista = carte.persoane.filter((p) => (!ap || p.apartament === Number(ap)) && (!ascundeMutati || !p.dataPlecarii));
+    const grupe = new Map();
+    for (const p of [...lista].sort((a, b) => a.apartament - b.apartament || a.dataMutarii.localeCompare(b.dataMutarii))) {
+      if (!grupe.has(p.apartament)) grupe.set(p.apartament, []);
+      grupe.get(p.apartament).push(p);
+    }
+    zona.replaceChildren(...(grupe.size
+      ? [...grupe].map(([a, l]) => h('section', { class: 'carte-ap' }, h('h2', {}, `Apartamentul ${a}`), tabel(l)))
+      : [h('p', { class: 'gol' }, carte.persoane.length ? 'Nicio persoană nu corespunde filtrului.' : 'Cartea de imobil e goală. Înscrierile apar aici după ce rezolvi cererile sau din „Înscriere directă”.')]));
+  };
+  const activi = carte.persoane.filter((p) => !p.dataPlecarii).length;
+  afiseaza('cereri',
+    h('div', { class: 'bara' },
+      h('h1', {}, 'Cartea de imobil'),
+      h('div', { class: 'actiuni' },
+        h('button', { onclick: () => deschide(formularPersoana(null, gata, renunta)) }, ic('plus'), 'Înscriere directă'),
+        h('button', { onclick: () => window.print() }, ic('printer'), 'Tipărește'))),
+    h('p', { class: 'avertizare nu-tipari' }, ic('lock'), ' Confidențial. Cartea de imobil o văd doar responsabilul cărții de imobil și președintele; se prezintă spre verificare numai poliției și serviciului de evidență a persoanelor (HG nr. 295/2021, anexa 1, art. 93 lit. c)). Nu se fac și nu se păstrează copii ale actelor de identitate (art. 94).'),
+    deFacut > 0 && h('p', { class: 'nu-tipari' }, h('a', { href: '#/admin/cereri' }, `${deFacut} ${deFacut === 1 ? 'cerere așteaptă' : 'cereri așteaptă'} înscrierea sau radierea →`)),
+    h('div', { class: 'doar-tipar antet-tipar' },
+      h('strong', {}, 'CARTEA DE IMOBIL'),
+      h('span', {}, `${ASOCIATIA.nume} — ${ASOCIATIA.adresa}`),
+      h('span', {}, 'Forma și conținutul conform HG nr. 295/2021, anexa 8')),
+    h('div', { class: 'filtre' },
+      h('select', { 'aria-label': 'Apartament', onchange: (ev) => { ap = ev.target.value; deseneaza(); } },
+        h('option', { value: '' }, 'Toate apartamentele'),
+        [...new Set(carte.persoane.map((p) => p.apartament))].sort((a, b) => a - b).map((a) => h('option', { value: a }, `Ap. ${a}`))),
+      h('label', { class: 'bifa' }, h('input', { type: 'checkbox', onchange: (ev) => { ascundeMutati = ev.target.checked; deseneaza(); } }), 'Ascunde persoanele mutate din imobil')),
+    h('p', { class: 'slab mic nu-tipari' }, `${activi} ${activi === 1 ? 'persoană înscrisă' : 'persoane înscrise'} în prezent, ${carte.persoane.length - activi} mutate din imobil.`),
+    zonaForm,
+    zona,
+    h('p', { class: 'doar-tipar subsol-tipar' },
+      'ATENȚIE! Confidențial, date cu caracter personal prelucrate în conformitate cu Regulamentul (UE) 2016/679 (Regulamentul general privind protecția datelor). ',
+      `Tipărit la ${fmtDataOra(new Date().toISOString())} din registrul electronic.`));
+  deseneaza();
+}
+
 // ---------- registru complet ----------
 
 const COLOANE_CSV = [
   ['Nr.', (x) => x.nr], ['Data', (x) => fmtData(x.data)], ['Tip', (x) => TIPURI_DOC[x.tip]], ['Categorie', (x) => CATEGORII[x.categorie]],
   ['Emitent', (x) => (CATEGORII_SESIZARE.includes(x.categorie) ? `Ap. ${x.apartament}` : x.emitent)],
-  ['Destinatar', (x) => (CATEGORII_SESIZARE.includes(x.categorie) ? numeRol(x.responsabil) : x.destinatar)],
+  ['Destinatar', (x) => (CATEGORII_SESIZARE.includes(x.categorie) || CATEGORII_CERERE.includes(x.categorie) ? numeRol(x.responsabil) : x.destinatar)],
   ['Conținut pe scurt', (x) => x.problema || x.continut], ['Conexat', (x) => x.conexat || (x.raspuns ? `${x.raspuns.nr}/${x.raspuns.an}` : '')],
-  ['Stare', (x) => STARI[x.stare] || ''], ['Termen', (x) => fmtData(x.termen)], ['Amprentă', (x) => codVerificare(x.amprenta)],
+  ['Stare', stareText], ['Termen', (x) => fmtData(x.termen)], ['Amprentă', (x) => codVerificare(x.amprenta)],
 ];
 
 function exportCsv(lista) {
@@ -1886,6 +2383,9 @@ async function ruta() {
   switch (p[1]) {
     case 'sesizare-noua': return poateSesizare() ? formularSesizare() : paginaAdmin();
     case 'document-nou': return poateInregistra() ? paginaDocumentNou() : paginaAdmin();
+    case 'cerere-noua': return eProprietar() || poateInregistraCerere() ? formularCerere() : paginaAdmin();
+    case 'cereri': return vedeCereri() ? paginaCereri() : paginaAdmin();
+    case 'carte-imobil': return eRespCarte() ? paginaCarteImobil() : paginaAdmin();
     case 's': return paginaAdminDetaliu(Number(p[2]), Number(p[3]));
     case 'registru': return eAdministratie() ? paginaRegistru() : paginaAdmin();
     case 'utilizatori': return ePresedinte() ? paginaUtilizatori() : paginaAdmin();

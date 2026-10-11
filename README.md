@@ -76,6 +76,29 @@ sesizările apartamentului lui.
 - **Avizier** (public, și în meniul celor conectați): procesele-verbale închise, cu verificarea semnăturilor; avertizare
   pentru termenul de 7 zile.
 
+## Cereri: cartea de imobil și numărul de persoane
+
+- **Cererea proprietarului** (meniul **Cerere**), semnată cu passkey: înscriere sau radiere în cartea de imobil
+  (persoanele, data mutării, felul adresei) și, opțional, **numărul nou de persoane care locuiesc efectiv**.
+  Se înregistrează **două cereri** conexate, fiecare cu numărul ei din registru:
+  - **cartea de imobil** → responsabilul cărții de imobil (Resp. 01), termen **15 zile** (HG nr. 295/2021, anexa 1, art. 93);
+  - **numărul de persoane** → administratorul, care îl trece în **e-bloc** și apasă „Am înregistrat în e-bloc”.
+  Cele două sunt independente: cartea de imobil arată domiciliul/reședința, cheltuielile țin de cine locuiește efectiv.
+- Cererile primite pe hârtie le înregistrează responsabilul cărții, președintele sau administratorul (cu scanul atașat).
+- Semnătura acoperă amprentele ambelor părți, așa că fiecare cerere se verifică singură: administratorul nu vede
+  numele din cererea pentru cartea de imobil.
+- Cererile nu se publică; în registru apar fără nume („Înscriere în cartea de imobil — ap. 23, 2 persoane”).
+
+## Cartea de imobil
+
+- Ținută electronic în formatul din **HG nr. 295/2021, anexa 8** (`carte-imobil.json` în repo-ul privat): numele, seria și
+  numărul actului de identitate, data mutării și felul adresei, domiciliul din act, data mutării din imobil.
+- O văd și o modifică **doar responsabilul cărții de imobil și președintele** (art. 93 lit. c): se prezintă spre verificare
+  numai poliției și S.P.C.E.P.). Fără copii ale actelor (art. 94): actul se verifică vizual, se trec doar datele.
+- La rezolvarea cererii, responsabilul completează datele din act și cererea devine „Rezolvată” în același commit;
+  există și înscriere directă, corectare (vechile valori rămân în istoric) și „Mutat”. Nimeni nu se șterge.
+- **Tipărește** dă cartea în formatul anexei 8, pe apartamente, cu mențiunea de confidențialitate.
+
 ## Semnătură electronică și integritate
 
 - **Passkey (WebAuthn):** fiecare își adaugă din **Profil** un passkey (de obicei se sincronizează singur prin contul Google/
@@ -89,6 +112,8 @@ sesizările apartamentului lui.
 
 ## Limite cunoscute (MVP)
 
+- Cartea de imobil și cererile stau în repo-ul privat, la care tehnic are acces orice cont conectat (vezi mai jos):
+  restricția „doar responsabil și președinte” e aplicată de interfață. Nu introduceți date reale înainte de componenta pe server.
 - Regulile de acces sunt aplicate de aplicație, nu de un server: oricine are un cont al administrației deține,
   după conectare, cheia de acces completă. Potrivit pentru o administrație de încredere; pentru conturi ale
   apartamentelor e nevoie de o componentă pe server.

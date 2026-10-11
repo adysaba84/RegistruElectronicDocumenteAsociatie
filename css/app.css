@@ -200,6 +200,8 @@ p.mic.eroare, p.mic.verificat { background: none; padding: 0; }
 .stare-in_lucru { background: var(--amber-bg); color: var(--amber); }
 .stare-raspuns_propus { background: var(--violet-bg); color: var(--violet); }
 .stare-raspuns_trimis, .stare-inchisa { background: var(--verde-bg); color: var(--verde-fg); }
+.stare-rezolvata { background: var(--verde-bg); color: var(--verde-fg); }
+.stare-respinsa { background: var(--err-bg); color: var(--danger); }
 .termen-depasit { background: var(--danger); color: #fff; }
 .termen-aproape { background: var(--amber-bg); color: var(--amber); }
 .insigne { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
@@ -246,6 +248,8 @@ ul.lista-sesizari { list-style: none; padding: 0; margin: 0; display: flex; flex
 .placa.in_lucru, .placa.aproape { background: var(--amber-bg); color: var(--amber); }
 .placa.raspuns_propus { background: var(--violet-bg); color: var(--violet); }
 .placa.raspuns_trimis, .placa.inchisa { background: var(--verde-bg); color: var(--verde-fg); }
+.placa.rezolvata { background: var(--verde-bg); color: var(--verde-fg); }
+.placa.respinsa { background: var(--err-bg); color: var(--danger); }
 .placa.depasit { background: var(--danger); color: #fff; }
 .rand-cap { display: flex; flex-wrap: wrap; gap: .3rem .5rem; align-items: center; font-size: .8rem; color: var(--muted); }
 .rand-cap .nr { font-weight: 700; color: var(--text); }
@@ -278,6 +282,30 @@ ul.fisiere li:last-child { border-bottom: none; }
 .conectare h1 { margin: 0; }
 .conectare p { margin: 0; }
 .evidentiat { border-left: 5px solid var(--accent); }
+
+/* ---------- cereri și cartea de imobil ---------- */
+.zona-cerere { display: flex; flex-direction: column; gap: .6rem; align-items: flex-start; }
+.zona-cerere > * { align-self: stretch; }
+.zona-cerere > button { align-self: flex-start; }
+legend label.bifa { font-weight: 600; }
+.persoane-cerere { display: flex; flex-direction: column; gap: .6rem; }
+.rand-persoana {
+  display: grid; grid-template-columns: 1fr auto; gap: .5rem .6rem; align-items: end;
+  background: var(--bg); border-radius: var(--radius); padding: .7rem;
+}
+.rand-persoana > label:first-child { grid-column: 1 / -1; }
+.rand-persoana .sterge-persoana { grid-column: 2; grid-row: 2; min-height: 46px; padding: .5rem .7rem; }
+.persoana-carte { background: var(--bg); border-radius: var(--radius); padding: .8rem; min-width: 0; }
+.persoana-carte legend { padding: 0 .3rem; }
+.tabel-carte { overflow-x: auto; background: var(--card); border-radius: var(--radius); }
+table.carte { width: 100%; border-collapse: collapse; font-size: .88rem; margin: .4rem 0; }
+table.carte th, table.carte td { border: 1px solid var(--border); padding: .45rem .55rem; text-align: left; vertical-align: top; }
+table.carte th { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); background: var(--bg); font-weight: 650; }
+table.carte tr.mutat td { color: var(--muted); }
+table.carte .actiuni { flex-wrap: nowrap; }
+table.carte button.mic { min-height: 36px; padding: .35rem .6rem; font-size: .82rem; }
+.carte-ap h2 { font-size: 1.05rem; margin: 1.2rem 0 .4rem; }
+details summary { cursor: pointer; color: var(--muted); margin: .5rem 0; }
 
 /* ---------- registru (tabel → carduri pe telefon) ---------- */
 .tabel-zona { background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--umbra); overflow: hidden; }
@@ -400,6 +428,7 @@ textarea.foaie-pv:focus { box-shadow: none; }
 }
 @media (prefers-reduced-motion: reduce) { .pv-mic.asculta { animation: none; } }
 
+[hidden] { display: none !important; }
 .doar-tipar { display: none; }
 
 /* ---------- încărcare ---------- */
@@ -440,6 +469,9 @@ button:disabled::after {
   .filtre input[type=search] { flex: 1 1 260px; }
   .optiuni { flex-direction: row; flex-wrap: wrap; gap: 0 .6rem; }
   .formular .grila { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rand-persoana { grid-template-columns: 2fr 1fr 1fr auto; }
+  .rand-persoana > label:first-child { grid-column: auto; }
+  .rand-persoana .sterge-persoana { grid-column: auto; grid-row: auto; }
   .formular .grila .lat { grid-column: 1 / -1; }
   dl.detalii { grid-template-columns: minmax(150px, 210px) 1fr; gap: .6rem 1rem; }
   dl.detalii dt { margin-top: 0; }
@@ -480,5 +512,10 @@ button:disabled::after {
   .ciorna { border: 1.5pt solid #000; padding: 4pt 8pt; font-weight: 700; text-align: center; letter-spacing: .03em; }
   .subsol-tipar { margin-top: 10pt; border-top: .5pt solid #999; padding-top: 4pt; color: #333; }
   .semnatura { break-inside: avoid; }
+  .tabel-carte { overflow: visible; }
+  table.carte { font-size: 9pt; }
+  table.carte th, table.carte td { border: .5pt solid #000; color: #000; background: none; padding: 2pt 4pt; }
+  table.carte tr { break-inside: avoid; }
+  .carte-ap h2 { font-size: 11pt; margin: 8pt 0 3pt; break-after: avoid; }
   ol.puncte > li, .decizie { break-inside: avoid; }
 }
