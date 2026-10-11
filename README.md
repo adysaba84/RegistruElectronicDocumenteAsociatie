@@ -125,6 +125,10 @@ sesizările apartamentului lui.
 - **Lanț de amprente:** fiecare înregistrare din registru conține amprenta celei anterioare; pagina Registru verifică lanțul.
 - **Istoric git:** fiecare salvare e un commit în repo-ul de date.
 
+## Documentație de proiect
+
+Arhitectură, modelul de date, permisiuni, securitate, probleme cunoscute și roadmap: [`docs/README.md`](docs/README.md).
+
 ## Limite cunoscute (MVP)
 
 - Cartea de imobil și cererile stau în repo-ul privat, la care tehnic are acces orice cont conectat (vezi mai jos):

@@ -1,21 +1,21 @@
-import { GitHubRepo, GitHubError, activitate } from './github.js?v=24';
-import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=24';
+import { GitHubRepo, GitHubError, activitate } from './github.js?v=25';
+import { Conturi, verificaParola, MIN_PAROLA } from './conturi.js?v=25';
 import {
   Registru, CATEGORII, CATEGORII_SESIZARE, CATEGORII_CERERE, STARI, STARI_CERERE, STARI_FINALE, TIPURI_DOC, CANALE, OCUPARE, MAX_FISIER,
   OPERATII_CARTE, FEL_ADRESA, TERMEN_CARTE_ZILE, MAX_PERSOANE,
   termenInfo, azi, amprenta, continutSemnat, continutRaspuns, codVerificare, verificaLant, pregatesteCerere, amprentaParte, continutCerere,
-} from './store.js?v=24';
-import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=24';
-import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=24';
+} from './store.js?v=25';
+import { CarteImobil, ROLURI_CARTE, ROLURI_CARTE_CITIRE } from './carte-imobil.js?v=25';
+import { Chei, FaraCheie, creeazaCheie, semneaza, verifica, suportat, hashText, b64u, unb64u } from './passkey.js?v=25';
 import {
   Sedinte, STARI_SEDINTA, ZILE_CONVOCARE, ZILE_AFISARE, continutConvocare, continutPV, stareSedinta, inchisa, cvorum, inceput, zileIntre,
-} from './sedinte.js?v=24';
+} from './sedinte.js?v=25';
 import {
   ASOCIATIA, REPO_DATE, REPO_PUBLIC, ROLURI, DOMENII, APARTAMENTE, TERMEN_RASPUNS_ZILE, apiBase, urlPublic,
-} from './config.js?v=24';
-import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=24';
-import { pvInText, textInPV } from './pv-text.js?v=24';
-import { Dictare, dictareSuportata } from './dictare.js?v=24';
+} from './config.js?v=25';
+import { parseaza, parseazaVot, parseazaTermen, potrivesteRol, fraza, textLiber } from './comenzi-voce.js?v=25';
+import { pvInText, textInPV } from './pv-text.js?v=25';
+import { Dictare, dictareSuportata } from './dictare.js?v=25';
 
 const API = apiBase();
 activitate.la = (n) => document.body.classList.toggle('ocupat', n > 0);
@@ -130,7 +130,9 @@ const eRespCarte = () => ROLURI_CARTE.includes(S.cont?.rol);
 const vedeCarte = () => ROLURI_CARTE_CITIRE.includes(S.cont?.rol); // administratorul o vede și o tipărește, nu o modifică
 const poateRezolvaPersoane = () => ['presedinte', 'administrator'].includes(S.cont?.rol);
 const vedePersoane = () => eProprietar() || ['presedinte', 'administrator', 'cenzor'].includes(S.cont?.rol);
-const poateInregistraCerere = () => eRespCarte() || S.cont?.rol === 'administrator';
+// Declarația separată de număr de persoane o înregistrează doar cine o vede și o rezolvă; responsabilul cărții o înregistrează
+// doar împreună cu o cerere de carte (cererea conexată apare la el ca „la administrator”).
+const poateInregistraDeclaratie = poateRezolvaPersoane;
 function vedeCerere(x) {
   if (eProprietar()) return x.apartament === S.cont.apartament;
   return x.categorie === 'cerere_carte' ? eRespCarte() : ['presedinte', 'administrator', 'cenzor'].includes(S.cont?.rol);
@@ -1543,7 +1545,7 @@ async function paginaPersoane() {
   for (const x of recente) if (x.stare === 'rezolvata' && !ultima.has(x.apartament)) ultima.set(x.apartament, x);
 
   const titlu = proprietar ? `Numărul de persoane — Ap. ${S.cont.apartament}` : 'Numărul de persoane';
-  const buton = (proprietar || poateInregistraCerere()) && h('a', { href: '#/admin/cerere-noua/persoane', class: 'buton principal' }, ic('plus'),
+  const buton = (proprietar || poateInregistraDeclaratie()) && h('a', { href: '#/admin/cerere-noua/persoane', class: 'buton principal' }, ic('plus'),
     proprietar ? 'Declară un număr nou' : 'Înregistrează declarație');
   const explicatie = h('p', { class: 'avertizare' }, ic('users'), ' Câte persoane locuiesc efectiv în apartament, pentru împărțirea cheltuielilor. Nu e același lucru cu cartea de imobil (domiciliul sau reședința). Declarația ajunge la administrator, care o trece în e-bloc; e-bloc rămâne evidența folosită la lista de plată.');
 
@@ -2582,7 +2584,7 @@ async function ruta() {
     case 'cerere-noua':
       if (p[2] === 'carte' && (eProprietar() || eRespCarte())) return formularCerere('carte');
       if (p[2] === 'preluare' && eRespCarte()) return formularCerere('preluare');
-      if (p[2] === 'persoane' && (eProprietar() || poateInregistraCerere())) return formularCerere('persoane');
+      if (p[2] === 'persoane' && (eProprietar() || poateInregistraDeclaratie())) return formularCerere('persoane');
       return paginaAdmin();
     case 'carte-imobil': return eProprietar() || vedeCarte() ? paginaCarteImobil() : paginaAdmin();
     case 'persoane': return vedePersoane() ? paginaPersoane() : paginaAdmin();
