@@ -10,7 +10,7 @@
 // documente) și reîncepe de la 1 în fiecare an. Nimic nu se șterge; fiecare
 // acțiune pe o sesizare se adaugă în istoricul ei.
 
-import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=19';
+import { DOMENII, TERMEN_RASPUNS_ZILE, ZILE_AVERTIZARE } from './config.js?v=20';
 
 export const CATEGORII = {
   sesizare: 'Sesizare',
@@ -157,23 +157,35 @@ export function vederePublica(reg) {
 const dataValida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '') && !Number.isNaN(new Date(`${v}T12:00:00`).getTime());
 
 // Normalizează și validează cererea din formular. Întoarce cele două părți (oricare poate lipsi):
-//   carte    = { operatiune, persoane: [{ nume, data, felAdresa? }] }
+//   carte    = { operatiune, persoane: [...] } — la înscriere coloanele din HG 295/2021, anexa 8:
+//              { nume, actSerie, actNumar, data, felAdresa, domiciliu }; la radiere { id?, nume, data }
+//              (`id` = persoana din cartea de imobil electronică, dacă e deja acolo)
 //   persoane = { nr, de }
 export function pregatesteCerere(c) {
   let carte = null;
   let persoane = null;
   if (c.carte) {
     const operatiune = OPERATII_CARTE[c.carte.operatiune] ? c.carte.operatiune : 'inscriere';
-    const lista = (c.carte.persoane || []).map((p) => ({
-      nume: text(p.nume),
-      data: text(p.data),
-      ...(operatiune === 'inscriere' ? { felAdresa: FEL_ADRESA[p.felAdresa] ? p.felAdresa : 'domiciliu' } : {}),
-    })).filter((p) => p.nume || p.data);
+    const lista = (c.carte.persoane || []).map((p) => (operatiune === 'inscriere'
+      ? {
+        nume: text(p.nume).toUpperCase(),
+        actSerie: text(p.actSerie).toUpperCase(),
+        actNumar: text(p.actNumar),
+        data: text(p.data),
+        felAdresa: FEL_ADRESA[p.felAdresa] ? p.felAdresa : 'domiciliu',
+        domiciliu: text(p.domiciliu),
+      }
+      : { ...(text(p.id) ? { id: text(p.id) } : {}), nume: text(p.nume).toUpperCase(), data: text(p.data) }
+    )).filter((p) => p.nume || p.data || p.actNumar || p.domiciliu);
     if (!lista.length) throw new Error('Adaugă cel puțin o persoană pentru cartea de imobil.');
     if (lista.length > MAX_PERSOANE) throw new Error(`Cel mult ${MAX_PERSOANE} de persoane într-o cerere.`);
     for (const p of lista) {
       if (!p.nume) throw new Error('Completează numele fiecărei persoane.');
       if (!dataValida(p.data)) throw new Error(`Completează data ${operatiune === 'inscriere' ? 'mutării în imobil' : 'mutării din imobil'} pentru ${p.nume}.`);
+      if (operatiune === 'inscriere') {
+        if (!p.actNumar) throw new Error(`Completează numărul actului de identitate pentru ${p.nume}.`);
+        if (!p.domiciliu) throw new Error(`Completează domiciliul din actul de identitate pentru ${p.nume}.`);
+      }
     }
     carte = { operatiune, persoane: lista };
   }
@@ -197,9 +209,16 @@ export function continutCerere({ apartament, nume, semnatDe, semnatLa, hCarte, h
   return JSON.stringify(['cerere', apartament, nume, hCarte, hPersoane, semnatDe, semnatLa]);
 }
 
-export const descriereCerere = (x) => (x.categorie === 'cerere_carte'
-  ? `${OPERATII_CARTE[x.carte.operatiune].replace(/ \(.*/, '')} în cartea de imobil — ap. ${x.apartament}, ${x.carte.persoane.length} ${x.carte.persoane.length === 1 ? 'persoană' : 'persoane'}`
-  : `Număr de persoane: ${x.persoane.nr} de la ${x.persoane.de.split('-').reverse().join('.')} — ap. ${x.apartament}`);
+const dataRo = (iso) => iso.split('-').reverse().join('.');
+
+// Textul din registru: fără nume, dar cu data de la care se aplică modificarea.
+export function descriereCerere(x) {
+  if (x.categorie !== 'cerere_carte') return `Număr de persoane: ${x.persoane.nr} de la ${dataRo(x.persoane.de)} — ap. ${x.apartament}`;
+  const n = x.carte.persoane.length;
+  const date = [...new Set(x.carte.persoane.map((p) => p.data))].sort();
+  const cand = date.length === 1 ? `de la ${dataRo(date[0])}` : `${dataRo(date[0])}–${dataRo(date.at(-1))}`;
+  return `${x.carte.operatiune === 'inscriere' ? 'Înscriere' : 'Radiere'} în cartea de imobil ${cand} — ap. ${x.apartament}, ${n} ${n === 1 ? 'persoană' : 'persoane'}`;
+}
 
 export class Registru {
   constructor(gh, ghPublic, cont) {

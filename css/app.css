@@ -290,11 +290,11 @@ ul.fisiere li:last-child { border-bottom: none; }
 legend label.bifa { font-weight: 600; }
 .persoane-cerere { display: flex; flex-direction: column; gap: .6rem; }
 .rand-persoana {
-  display: grid; grid-template-columns: 1fr auto; gap: .5rem .6rem; align-items: end;
-  background: var(--bg); border-radius: var(--radius); padding: .7rem;
+  display: grid; grid-template-columns: 1fr; gap: .6rem;
+  background: var(--bg); border-radius: var(--radius); padding: .8rem;
 }
-.rand-persoana > label:first-child { grid-column: 1 / -1; }
-.rand-persoana .sterge-persoana { grid-column: 2; grid-row: 2; min-height: 46px; padding: .5rem .7rem; }
+.rand-persoana .sterge-persoana { justify-self: end; min-height: 38px; padding: .35rem .7rem; font-size: .85rem; }
+p.mare { font-size: 1.2rem; margin: .2rem 0; }
 .persoana-carte { background: var(--bg); border-radius: var(--radius); padding: .8rem; min-width: 0; }
 .persoana-carte legend { padding: 0 .3rem; }
 .tabel-carte { overflow-x: auto; background: var(--card); border-radius: var(--radius); }
@@ -469,9 +469,8 @@ button:disabled::after {
   .filtre input[type=search] { flex: 1 1 260px; }
   .optiuni { flex-direction: row; flex-wrap: wrap; gap: 0 .6rem; }
   .formular .grila { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .rand-persoana { grid-template-columns: 2fr 1fr 1fr auto; }
-  .rand-persoana > label:first-child { grid-column: auto; }
-  .rand-persoana .sterge-persoana { grid-column: auto; grid-row: auto; }
+  .rand-persoana { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rand-persoana .lat, .rand-persoana .sterge-persoana { grid-column: 1 / -1; }
   .formular .grila .lat { grid-column: 1 / -1; }
   dl.detalii { grid-template-columns: minmax(150px, 210px) 1fr; gap: .6rem 1rem; }
   dl.detalii dt { margin-top: 0; }
