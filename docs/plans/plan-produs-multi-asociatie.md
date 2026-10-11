@@ -168,13 +168,25 @@ Principiu: **o singură aplicație web, un singur cod**; desktopul și mobilul s
 Respinse: Electron (greu, passkey slab), Flutter / nativ (încă un cod), Next.js (randarea pe server nu aduce nimic în
 spatele conectării), Supabase (passkey și permisiunile complexe tot pe server propriu, mutare grea mai târziu).
 
-### Hosting pe etape (toate în UE; prețuri aproximative)
+### Hosting pe etape (toate în UE)
+
+Prețuri verificate în **octombrie 2026**, fără TVA; Hetzner a scumpit de două ori în 2026 (aprilie, 15 iunie).
+Se reconfirmă la comandă.
 
 | Etapă | Infrastructură | Cost / lună |
 |---|---|---|
-| **1** — 0–20 asociații | 1 server **Hetzner Cloud** 4 vCPU / 8 GB cu **Coolify** (deploy din Git, HTTPS, backup DB); **Hetzner Object Storage**; DNS Cloudflare; backup săptămânal și la **Scaleway** | ~15–25 € |
-| **2** — 20–200 | **Scaleway Managed PostgreSQL** (restaurare la orice moment); 2 servere de aplicație + **Hetzner Load Balancer**; server separat pentru joburi / PDF; CDN **Bunny.net** | ~70–150 € |
-| **3** — 200+ | DB mai mare + copie pentru citire; mai multe servere; pentest; marcă temporală calificată opțională | ~300 €+ |
+| **1** — 0–20 asociații | 1 server **Hetzner Cloud CX33** (4 vCPU partajate / 8 GB, ~8,49 € + IPv4) cu **Coolify**; **Hetzner Object Storage** (~6,49 €, 1 TB inclus); backup Hetzner (~1,70 €); copie săptămânală la alt furnizor | ~**20–25 €** |
+| **2** — 20–200 | PostgreSQL pe **server separat**, administrat de noi, cu **pgBackRest** (restaurare la orice moment) în Object Storage; 2 servere de aplicație + **Hetzner Load Balancer**; joburi / PDF separat; CDN **Bunny.net** | ~**50–90 €** |
+| **2+** — când nu mai vrem să administrăm baza de date | **Scaleway Managed PostgreSQL** (~0,14 €/oră pentru 2 vCPU / 8 GB ≈ **105 €/lună** doar baza de date, plus spațiu și backup) | ~**150–200 €** |
+| **3** — 200+ | DB mai mare + copie pentru citire; mai multe servere; pentest; marcă temporală calificată opțională | ~**300 €+** |
+
+Note:
+- Nu folosim serverele **CPX** (vCPU dedicate) la început: după iunie 2026 CPX32 costă ~35,49 €, de 4 ori mai mult
+  decât CX33, fără câștig real pentru încărcarea noastră.
+- Alternative mai ieftine de verificat la comandă: **OVH** VPS (după scumpirea din aprilie 2026, posibil cel mai ieftin
+  8 GB) și **Netcup**. Hetzner rămâne alegerea implicită pentru că are la același furnizor server, stocare, backup și
+  load balancer.
+- E-mail: **Brevo** gratuit până la 300 de e-mailuri/zi (~9 000/lună), suficient pentru etapa 1.
 
 Fără Kubernetes. Trecerea între etape nu schimbă tehnologiile (containere Docker + PostgreSQL standard).
 Obligatoriu din etapa 1: backup zilnic, copie la alt furnizor, restaurare de probă lunară.
